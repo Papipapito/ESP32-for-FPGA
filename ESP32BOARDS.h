@@ -72,7 +72,8 @@ enum SupportedBaudRates {
 
 //Uncomment ONLY the Flash Size you are targetting
 //#define FLASH_8M
-#define FLASH_16M
+//#define FLASH_16M
+#define FLASH_4M            // Waveshare ESP32-C6-LCD-1.3 = 4MB (particion Huge APP No-OTA en Arduino IDE)
 
 #ifdef ESP32_S3
   #ifdef FLASH_8M
@@ -84,6 +85,9 @@ enum SupportedBaudRates {
 #endif
 
 #ifdef ESP32_C6
+  #ifdef FLASH_4M
+    #define FIRMWARETYPE "UN32C604"
+  #endif
   #ifdef FLASH_8M
     #define FIRMWARETYPE "UN32C608"
   #endif

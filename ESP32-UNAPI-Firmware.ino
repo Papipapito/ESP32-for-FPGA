@@ -112,6 +112,7 @@ unsigned char ucLastCmd, ucLastResponse;
 unsigned int uiLastDataSize;
 unsigned char *ucLastData;
 ESPConfig stDeviceConfiguration;
+volatile uint32_t g_lastUartMs = 0;   // ultima actividad UART MSX<->ESP (para el indicador de Display.ino)
 static byte btState = RX_PARSER_IDLE;
 byte btReadyRetries;
 byte btReceivedCommand;
@@ -493,6 +494,7 @@ void setup() {
   Serial.print(" ");
   Serial.println(FIRMWARETYPE);
   Serial.println("(c) 2019-2026 Oduvaldo Pavan Junior - ducasp@gmail.com");
+  displaySetup();               // <-- pantalla de estado WiFi (Display.ino, anadido para MSXnano)
   longReadyTimeOut = 0;
   btReadyRetries = 3;
   btReceivedCommand = false;
@@ -3866,13 +3868,17 @@ proccesscmd:
 void loop() {
   unsigned int uiI;
 
+  displayTask();                // <-- refresca la pantalla (self-throttled 1/s, Display.ino)
+
   if (bDisableRadioPending) {
     bDisableRadioPending = false;
     DisableRadio();
   }
 
-  if (Serial.available())
+  if (Serial.available()) {
+    g_lastUartMs = millis();          // actividad del enlace MSX (indicador de la pantalla)
     received_data_parser();
+  }
 
   if ((!btReceivedCommand)&&(btReadyRetries))
   {
