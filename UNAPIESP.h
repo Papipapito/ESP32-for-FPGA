@@ -114,7 +114,9 @@ enum CustomFunctions {
   CUSTOM_F_TSX_PLAY = 'K',      // {letra,pag,idx} descarga+reproduce; vacio=STOP
   CUSTOM_F_TSX_STATUS = 'k',    // {} -> {busy,err,sentPag16,totalPag16}
   CUSTOM_F_TSX_UPLOAD = 'X',    // {size u32 LE} subida desde el MSX (SD offline)
-  CUSTOM_F_TSX_UPBLOCK = 'x'    // {chunk} anexa; al completar convierte+reproduce
+  CUSTOM_F_TSX_UPBLOCK = 'x',   // {chunk} anexa; al completar convierte+reproduce
+  CUSTOM_F_TSX_FIND = 'J'       // {texto} busca en el catalogo y reproduce el
+                                // 1er match; resp: [loadcmd u8][nombreZ ASCII]
 };
 
 // MUST NEVER GO BEYOND 33 for standard TCP-IP UNAPI functions

@@ -2300,6 +2300,7 @@ void received_data_parser () {
           case CUSTOM_F_TSX_STATUS:
           case CUSTOM_F_TSX_UPLOAD:
           case CUSTOM_F_TSX_UPBLOCK:
+          case CUSTOM_F_TSX_FIND:
           case SSH_GET_CAPAB:
           case SSH_OPEN:
           case SSH_CLOSE:
@@ -2393,6 +2394,9 @@ proccesscmd:
         break;
         case CUSTOM_F_TSX_UPBLOCK:
           tsxCmdUploadBlock(btCommandData, uiCmdDataLen);
+        break;
+        case CUSTOM_F_TSX_FIND:
+          tsxCmdFind(btCommandData, uiCmdDataLen);
         break;
         case CUSTOM_F_FILE_BOARD:
           if (strcmp(FIRMWARETYPE,(const char*)btCommandData) == 0) {

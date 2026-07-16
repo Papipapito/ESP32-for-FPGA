@@ -248,6 +248,83 @@ void tsxCmdStatus() {
     SendResponse(CUSTOM_F_TSX_STATUS, UNAPI_ERR_OK, 6, st);
 }
 
+// TSX_FIND: busca 'texto' (case/acento-insensible) en el catalogo de la letra
+// inicial del texto, paginando; al primer match descarga y reproduce.
+// Respuesta: SendResponse OK + [loadcmd u8][nombreZ ASCII] (para que el MSX
+// muestre que juego esta cargando y con que comando arrancarlo). Errores:
+// UNAPI_ERR_NO_DATA = sin coincidencias.
+void tsxCmdFind(const uint8_t* data, unsigned len) {
+    if (len == 0 || len > 60) {
+        SendQuickResponse(CUSTOM_F_TSX_FIND, UNAPI_ERR_INV_PARAM);
+        return;
+    }
+    if (tapeBusy()) {
+        SendQuickResponse(CUSTOM_F_TSX_FIND, UNAPI_ERR_INV_OPER);
+        return;
+    }
+    char needle[64];
+    memcpy(needle, data, len);
+    needle[len] = 0;
+    // a minusculas ASCII para comparar
+    for (char* p = needle; *p; p++)
+        if (*p >= 'A' && *p <= 'Z') *p += 32;
+    char letter = needle[0];
+    // buscar paginando la letra (el catalogo pagina de 50 en 50)
+    for (uint8_t page = 0; page < 8; page++) {
+        uint8_t err = tsxEnsurePage(letter, page);
+        if (err != UNAPI_ERR_OK) {
+            if (page == 0) { g_tsxErr = err; SendQuickResponse(CUSTOM_F_TSX_FIND, err); return; }
+            break;                    // paginas agotadas
+        }
+        for (uint8_t i = 0; i < g_catN; i++) {
+            char hay[TSX_NAME_TX + 1];
+            tsxAsciiFold(g_cat[i].name, hay, sizeof(hay));
+            for (char* p = hay; *p; p++)
+                if (*p >= 'A' && *p <= 'Z') *p += 32;
+            if (strstr(hay, needle) == nullptr) continue;
+            // match: descargar + reproducir (reusa el camino de PLAY)
+            const CatEntry& e = g_cat[i];
+            if (e.sizeBytes > TSX_MAX_FILE ||
+                ESP.getFreeHeap() < e.sizeBytes * 2 + 40000) {
+                g_tsxErr = UNAPI_ERR_BUFFER;
+                SendQuickResponse(CUSTOM_F_TSX_FIND, UNAPI_ERR_BUFFER);
+                return;
+            }
+            std::vector<uint8_t> tsx;
+            tsx.reserve(e.sizeBytes);
+            String url = String("https://") + TSX_HOST + "/tsx-files/" +
+                         tsxUrlEncode(e.name) + ".tsx";
+            err = tsxHttpGetStream(url, [&](uint8_t b) {
+                if (tsx.size() < TSX_MAX_FILE) tsx.push_back(b);
+            });
+            if (err != UNAPI_ERR_OK) {
+                g_tsxErr = err;
+                SendQuickResponse(CUSTOM_F_TSX_FIND, err);
+                return;
+            }
+            const char* cerr = tapePlay(tsx.data(), tsx.size());
+            if (cerr) {
+                g_tsxErr = UNAPI_ERR_INV_PARAM;
+                SendQuickResponse(CUSTOM_F_TSX_FIND, UNAPI_ERR_INV_PARAM);
+                return;
+            }
+            // OK: devolver loadcmd + nombre plegado a ASCII
+            uint8_t resp[2 + TSX_NAME_TX];
+            resp[0] = e.loadcmd;
+            char nm[TSX_NAME_TX + 1];
+            tsxAsciiFold(e.name, nm, sizeof(nm));
+            unsigned l = strlen(nm);
+            memcpy(&resp[1], nm, l + 1);
+            g_tsxErr = UNAPI_ERR_OK;
+            SendResponse(CUSTOM_F_TSX_FIND, UNAPI_ERR_OK, 2 + l, resp);
+            return;
+        }
+        if (g_catN < TSX_PAGE_MAX) break;   // ultima pagina de la letra
+    }
+    g_tsxErr = UNAPI_ERR_NO_DATA;
+    SendQuickResponse(CUSTOM_F_TSX_FIND, UNAPI_ERR_NO_DATA);
+}
+
 void tsxCmdUploadStart(const uint8_t* data, unsigned len) {
     if (len != 4) { SendQuickResponse(CUSTOM_F_TSX_UPLOAD, UNAPI_ERR_INV_PARAM); return; }
     uint32_t size = (uint32_t)data[0] | ((uint32_t)data[1] << 8) |
