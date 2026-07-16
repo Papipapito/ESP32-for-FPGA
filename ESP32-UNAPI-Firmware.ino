@@ -2295,6 +2295,11 @@ void received_data_parser () {
           case CUSTOM_F_SET_AUTOCLOCK:
           case CUSTOM_F_FILE_BOARD:
           case CUSTOM_F_SETBAUD:
+          case CUSTOM_F_TSX_LIST:
+          case CUSTOM_F_TSX_PLAY:
+          case CUSTOM_F_TSX_STATUS:
+          case CUSTOM_F_TSX_UPLOAD:
+          case CUSTOM_F_TSX_UPBLOCK:
           case SSH_GET_CAPAB:
           case SSH_OPEN:
           case SSH_CLOSE:
@@ -2369,6 +2374,25 @@ proccesscmd:
             SendQuickResponse(btCommand, UNAPI_ERR_OK);
             setUartSpeed();
           }
+        break;
+        // ---- cinta virtual por stream (TapeWeb.ino, MSXnano/MSXimus) ----
+        case CUSTOM_F_TSX_LIST:
+          if (uiCmdDataLen != 3) SendQuickResponse(btCommand, UNAPI_ERR_INV_PARAM);
+          else tsxCmdList(btCommandData[0], btCommandData[1], btCommandData[2]);
+        break;
+        case CUSTOM_F_TSX_PLAY:
+          if (uiCmdDataLen == 0) tsxCmdStop();          // payload vacio = STOP
+          else if (uiCmdDataLen != 3) SendQuickResponse(btCommand, UNAPI_ERR_INV_PARAM);
+          else tsxCmdPlay(btCommandData[0], btCommandData[1], btCommandData[2]);
+        break;
+        case CUSTOM_F_TSX_STATUS:
+          tsxCmdStatus();
+        break;
+        case CUSTOM_F_TSX_UPLOAD:
+          tsxCmdUploadStart(btCommandData, uiCmdDataLen);
+        break;
+        case CUSTOM_F_TSX_UPBLOCK:
+          tsxCmdUploadBlock(btCommandData, uiCmdDataLen);
         break;
         case CUSTOM_F_FILE_BOARD:
           if (strcmp(FIRMWARETYPE,(const char*)btCommandData) == 0) {

@@ -108,7 +108,13 @@ enum CustomFunctions {
   CUSTOM_F_HOLDCONNECTION = 'H',
   CUSTOM_F_RELEASECONNECTION = 'h',
   CUSTOM_F_GETAPSTS = 'g',
-  CUSTOM_F_QUERY = '?'
+  CUSTOM_F_QUERY = '?',
+  // cinta virtual por stream (MSXnano/MSXimus, TapeWeb.ino)
+  CUSTOM_F_TSX_LIST = 'L',      // {letra,pag,offset} -> listado del catalogo
+  CUSTOM_F_TSX_PLAY = 'K',      // {letra,pag,idx} descarga+reproduce; vacio=STOP
+  CUSTOM_F_TSX_STATUS = 'k',    // {} -> {busy,err,sentPag16,totalPag16}
+  CUSTOM_F_TSX_UPLOAD = 'X',    // {size u32 LE} subida desde el MSX (SD offline)
+  CUSTOM_F_TSX_UPBLOCK = 'x'    // {chunk} anexa; al completar convierte+reproduce
 };
 
 // MUST NEVER GO BEYOND 33 for standard TCP-IP UNAPI functions
