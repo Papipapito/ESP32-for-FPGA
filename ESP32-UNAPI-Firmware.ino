@@ -495,6 +495,7 @@ void setup() {
   Serial.println(FIRMWARETYPE);
   Serial.println("(c) 2019-2026 Oduvaldo Pavan Junior - ducasp@gmail.com");
   displaySetup();               // <-- pantalla de estado WiFi (Display.ino, anadido para MSXnano)
+  tapeSetup();                  // <-- cinta virtual por stream (Tape.ino: UART1 GPIO20 + RTR GPIO23)
   longReadyTimeOut = 0;
   btReadyRetries = 3;
   btReceivedCommand = false;
