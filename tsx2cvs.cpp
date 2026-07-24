@@ -1,6 +1,14 @@
 // tsx2cvs.cpp - ver tsx2cvs.h. Port fiel de tsx2rom (Python); cada seccion
 // referencia la funcion Python equivalente. Con chequeo de limites ESTRICTO
 // (esto corre en un ESP: nada de leer fuera del buffer con cintas corruptas).
+//
+// SEGURIDAD DE ENTEROS: size_t en el ESP32 es de 32 bits. Los campos de
+// longitud DWORD (bloques 0x4B y 0x35) los controla el fichero, que viene de
+// internet. Nunca los validamos como "o + K + ln > n" (esa suma envuelve
+// mod 2^32 si ln es enorme y omite la cota), sino como "ln > n - (o + K)":
+// la guarda previa garantiza o+K <= n, asi que la resta no desborda por abajo
+// y la comparacion es exacta. El Python original usa enteros de precision
+// arbitraria y no tiene este problema; esta es la unica divergencia necesaria.
 #include "tsx2cvs.h"
 
 #include <string.h>
@@ -92,16 +100,21 @@ const char* parse_tsx(const uint8_t* d, size_t n, std::vector<Blk>& blocks) {
             if (o + 2 > n) return "TSX truncado (bloque 33)";
             o += 2 + 3 * (size_t)d[o + 1];
             break;
-        case 0x35:                        // custom info
+        case 0x35: {                      // custom info
             if (o + 0x15 > n) return "TSX truncado (bloque 35)";
-            o += 0x15 + (size_t)u32(d, o + 0x11);
-            break;
+            size_t ln = u32(d, o + 0x11);              // DWORD del fichero (u32)
+            if (ln > n - (o + 0x15))                   // resta: no desborda (32b)
+                return "TSX truncado (payload 35)";
+            o += 0x15 + ln;
+            break; }
         case 0x4B: {                      // MSX KCS (el importante)
             if (o + 17 > n) return "TSX truncado (bloque 4B)";
-            size_t ln = u32(d, o + 1);    // longitud desde o+5 (incluye params)
+            size_t ln = u32(d, o + 1);    // longitud (u32) desde o+5, incluye
+                                          // 12 bytes de params antes del payload
             if (ln < 12) return "bloque 4B invalido (len<12)";
-            if (o + 5 + ln > n) return "TSX truncado (payload 4B)";
-            blocks.push_back({o + 17, ln - 12});
+            if (ln > n - (o + 5))         // resta: no desborda (ver cabecera)
+                return "TSX truncado (payload 4B)";
+            blocks.push_back({o + 17, ln - 12});   // payload = o+17 .. o+5+ln
             o += 5 + ln;
             break; }
         case 0x5A: o += 10; break;        // glue block

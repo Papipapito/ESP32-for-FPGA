@@ -38,7 +38,12 @@ inline int hexval(uint8_t c) {
     return 0;
 }
 
-void classify_load(const CatScanner* s, CatEntry* out) {
+void classify_load(CatScanner* s, CatEntry* out) {
+    // NUL-terminar a la longitud LOGICA: el cierre normal ('"') ya lo hace, pero
+    // si el stream se corta dentro del valor TSX.LOAD (descarga truncada) ese
+    // cierre no llega y load[llen..] conservaria texto rancio de la entrada
+    // anterior -> strstr clasificaria mal. llen<=sizeof(load)-1, indice valido.
+    s->load[s->llen] = 0;
     if (s->llen == 0) { out->loadcmd = 2; return; }
     if (strstr(s->load, "BLOAD") != nullptr) out->loadcmd = 1;
     else if (strstr(s->load, "RUN") != nullptr) out->loadcmd = 0;

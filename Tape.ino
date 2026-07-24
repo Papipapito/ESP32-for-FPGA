@@ -31,10 +31,35 @@
 #define TAPE_BAUD    115200
 #define TAPE_CHUNK   64      // rafaga maxima tras ver RTR alto
 
-static std::vector<uint8_t> g_tapeStream;   // stream CVS1 en RAM
-static volatile size_t      g_tapePos  = 0;
-static volatile bool        g_tapeBusy = false;
-static TaskHandle_t         g_tapeTask = nullptr;
+// ---------------------------------------------------------------------------
+// MODELO DE CONCURRENCIA (C6 mono-nucleo, FreeRTOS con time-slicing)
+// ---------------------------------------------------------------------------
+// Hay dos contextos que tocan este estado: (A) la tarea de enlace UNAPI, que
+// corre en loop() y llama a tapePlay/tapeStop; (B) tapeFeedTask, una tarea
+// aparte (prioridad 1) que bombea el stream. Ambas a prioridad 1 -> el tick
+// puede intercalarlas en cualquier punto.
+//
+// Regla de oro para evitar carreras / locks colgados / use-after-free:
+//   - NUNCA se mata la tarea desde fuera (vTaskDelete de OTRA tarea deja
+//     tomado el mutex del UART si la matamos dentro de Serial1.write/flush, y
+//     el siguiente uso del UART se cuelga para siempre). En su lugar se pide
+//     parada COOPERATIVA (g_tapeStopReq) y la tarea sale ELLA MISMA en un punto
+//     donde no posee ningun lock.
+//   - La tarea es la UNICA duena de su ciclo de vida: libera el buffer y se
+//     autodestruye con vTaskDelete(nullptr). NO escribe g_tapeTask (asi no
+//     puede pisar el handle de una tarea nueva) y pone g_tapeBusy=false EL
+//     ULTIMO (mientras siga true, tapePlay rechaza reentradas y nadie mas toca
+//     g_tapeStream).
+//   - tapeStop() pide la parada y ESPERA a que g_tapeBusy baje (join), sin
+//     tocar el buffer: lo libera la propia tarea.
+// Con esto g_tapeStream solo lo toca UN contexto a la vez (handoff por el flag
+// busy), sin necesidad de mutex.
+// ---------------------------------------------------------------------------
+static std::vector<uint8_t> g_tapeStream;    // stream CVS1 en RAM
+static volatile size_t      g_tapePos     = 0;
+static volatile bool        g_tapeBusy    = false;  // true de tapePlay a teardown
+static volatile bool        g_tapeStopReq = false;  // peticion de parada cooperativa
+static TaskHandle_t         g_tapeTask    = nullptr; // lo escribe SOLO tapePlay/Stop
 
 // ---- estado para la pantalla (Display.ino puede consultarlos) ----
 bool   tapeBusy()     { return g_tapeBusy; }
@@ -43,7 +68,9 @@ size_t tapeSent()     { return g_tapePos; }
 
 static void tapeFeedTask(void*)
 {
-    while (g_tapePos < g_tapeStream.size()) {
+    // Sale al terminar el stream O cuando tapeStop() pide parada. La condicion
+    // se comprueba en los limites del bucle (nunca con un lock del UART tomado).
+    while (g_tapePos < g_tapeStream.size() && !g_tapeStopReq) {
         if (digitalRead(TAPE_RTR_PIN)) {
             size_t n = g_tapeStream.size() - g_tapePos;
             if (n > TAPE_CHUNK) n = TAPE_CHUNK;
@@ -54,11 +81,14 @@ static void tapeFeedTask(void*)
             vTaskDelay(pdMS_TO_TICKS(5));  // FPGA lleno: la cinta consume a
         }                                  // ~110B/s, sobra con re-mirar cada 5ms
     }
+    // Teardown (aqui NO se posee ningun lock): liberar el buffer y avisar. El
+    // orden importa: busy=false debe ser lo ULTIMO antes de autodestruirse, y
+    // NO tocamos g_tapeTask (podria apuntar ya a una tarea nueva).
     g_tapeStream.clear();
     g_tapeStream.shrink_to_fit();
+    g_tapePos  = 0;
     g_tapeBusy = false;
-    g_tapeTask = nullptr;
-    vTaskDelete(nullptr);
+    vTaskDelete(nullptr);                  // vTaskDelete(NULL) = "esta tarea"
 }
 
 // Inicializar UART1 + RTR. Llamar una vez desde setup() (tras displaySetup()).
@@ -75,8 +105,9 @@ const char* tapePlay(const uint8_t* tapefile, size_t len)
     if (g_tapeBusy) return "ya hay una cinta reproduciendose";
     const char* err = tsx2cvs(tapefile, len, g_tapeStream);
     if (err) { g_tapeStream.clear(); return err; }
-    g_tapePos  = 0;
-    g_tapeBusy = true;
+    g_tapePos     = 0;
+    g_tapeStopReq = false;               // limpiar una peticion de parada rancia
+    g_tapeBusy    = true;
     // prioridad baja: el enlace UNAPI (loop) manda; la cinta tiene 18s de buffer
     if (xTaskCreate(tapeFeedTask, "tapefeed", 3072, nullptr, 1, &g_tapeTask) != pdPASS) {
         g_tapeBusy = false;
@@ -86,12 +117,16 @@ const char* tapePlay(const uint8_t* tapefile, size_t len)
     return nullptr;
 }
 
-// Cancelar la reproduccion (p.ej. el usuario vuelve al menu).
+// Cancelar la reproduccion (p.ej. el usuario vuelve al menu). Parada COOPERATIVA:
+// pide a la tarea que salga y espera a que lo confirme (join por g_tapeBusy). No
+// libera el buffer aqui: lo hace la propia tarea en su teardown.
 void tapeStop()
 {
-    if (g_tapeTask) { vTaskDelete(g_tapeTask); g_tapeTask = nullptr; }
-    g_tapeStream.clear();
-    g_tapeStream.shrink_to_fit();
-    g_tapePos  = 0;
-    g_tapeBusy = false;
+    if (!g_tapeBusy) return;             // nada corriendo
+    g_tapeStopReq = true;
+    // esperar a que la tarea salga sola. Peor caso ~= una rafaga (flush de 64B
+    // a 115200 ~5.5ms) antes de que compruebe el flag en el limite del bucle.
+    while (g_tapeBusy) vTaskDelay(pdMS_TO_TICKS(2));
+    g_tapeStopReq = false;
+    g_tapeTask    = nullptr;             // la tarea ya se autodestruyo (join hecho)
 }

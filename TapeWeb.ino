@@ -70,13 +70,14 @@ static uint8_t tsxHttpGetStream(const String& url,
     http.addHeader("Referer", TSX_REFERER);
     int code = http.GET();
     if (code != HTTP_CODE_OK) { http.end(); return UNAPI_ERR_NO_DATA; }
-    int remaining = http.getSize();   // -1 = chunked/desconocido
+    int remaining = http.getSize();   // -1 = chunked / Content-Length ausente
     WiFiClient* st = http.getStreamPtr();
     unsigned long idle = millis();
+    bool stalled = false;             // salimos por timeout de datos (no fin limpio)
     while (http.connected() && (remaining > 0 || remaining == -1)) {
         int av = st->available();
         if (av <= 0) {
-            if (millis() - idle > 15000) break;   // timeout de datos
+            if (millis() - idle > 15000) { stalled = true; break; }
             delay(1);
             continue;
         }
@@ -89,7 +90,10 @@ static uint8_t tsxHttpGetStream(const String& url,
         }
     }
     http.end();
-    return (remaining > 0) ? UNAPI_ERR_NO_DATA : UNAPI_ERR_OK;
+    // Con Content-Length: remaining>0 = truncado. Sin el (remaining==-1) no
+    // podemos verificar la longitud, pero SI detectamos el estancamiento: un
+    // corte a mitad se va por el timeout de datos -> error, no OK silencioso.
+    return (remaining > 0 || stalled) ? UNAPI_ERR_NO_DATA : UNAPI_ERR_OK;
 }
 
 // letra del MSX -> idx del catalogo ('A'..'Z' tal cual; otro = "0-9")
@@ -217,8 +221,12 @@ void tsxCmdPlay(uint8_t letter, uint8_t page, uint8_t idx) {
     tsx.reserve(e.sizeBytes);
     String url = String("https://") + TSX_HOST + "/tsx-files/" +
                  tsxUrlEncode(e.name) + ".tsx";
+    // Cota = e.sizeBytes (lo reservado y lo que el guard de heap comprobo): si
+    // el catalogo infra-reportara el tamano, no crecemos el vector por encima
+    // del heap verificado (un fichero mas grande de lo anunciado se trunca y
+    // tsx2cvs lo rechazara). fileSize del catalogo = tamano exacto del .tsx.
     err = tsxHttpGetStream(url, [&](uint8_t b) {
-        if (tsx.size() < TSX_MAX_FILE) tsx.push_back(b);
+        if (tsx.size() < e.sizeBytes) tsx.push_back(b);
     });
     if (err != UNAPI_ERR_OK) {
         g_tsxErr = err;
@@ -294,8 +302,10 @@ void tsxCmdFind(const uint8_t* data, unsigned len) {
             tsx.reserve(e.sizeBytes);
             String url = String("https://") + TSX_HOST + "/tsx-files/" +
                          tsxUrlEncode(e.name) + ".tsx";
+            // cota = e.sizeBytes (= lo reservado y lo verificado por el guard de
+            // heap); ver la nota identica en tsxCmdPlay.
             err = tsxHttpGetStream(url, [&](uint8_t b) {
-                if (tsx.size() < TSX_MAX_FILE) tsx.push_back(b);
+                if (tsx.size() < e.sizeBytes) tsx.push_back(b);
             });
             if (err != UNAPI_ERR_OK) {
                 g_tsxErr = err;
