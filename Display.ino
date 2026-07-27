@@ -1,5 +1,5 @@
 /*
- * Display.ino - Pantalla de estado (WiFi + Sistema + Turbo) para MSXnano en la
+ * Display.ino - Pantalla de estado (WiFi + Sistema + Turbo) para MSXimus/MSXnano en la
  * Waveshare ESP32-C6-LCD-1.3 (ST7789V2 240x240 SPI). Modulo AÑADIDO al firmware
  * UNAPI de ducasp. Arduino concatena los .ino: llamar displaySetup() en setup()
  * y displayTask() en loop() del .ino principal.
@@ -23,6 +23,10 @@
 #define LCD_RST   21
 #define LCD_BL    22
 
+// Marca y version que pinta el titulo del LCD (peticion Albert 27/07: el
+// modulo con pantalla vive hoy en el MSXimus; para un nano, cambiar aqui)
+#define DEVICE_NAME    "MSXimus"
+#define DEVICE_VERSION "v2.0"
 #define TURBO_PIN 3       // GPIO libre del C6 (header) cableado al pin de turbo del FPGA
 
 // Colores RGB565
@@ -67,7 +71,7 @@ void displaySetup()
     gfx->setTextColor(COL_CYAN);
     gfx->setTextSize(2);
     gfx->setCursor(6, 6);
-    gfx->print("MSXnano");
+    gfx->print(DEVICE_NAME " " DEVICE_VERSION);
     gfx->drawFastHLine(0, 28, 240, COL_DARKGREY);
     gfx->drawFastHLine(0, 108, 240, COL_DARKGREY);
     gfx->drawFastHLine(0, 152, 240, COL_DARKGREY);
