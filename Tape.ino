@@ -12,23 +12,28 @@
  * ESP (~128B) el peor caso en vuelo es ~192 bytes < 511 -> IMPOSIBLE
  * desbordar si el cableado es correcto.
  *
- * PINES (defines): C6 -> TX1=GPIO20, RTR=GPIO23 (header de la C6-LCD-1.3;
- * NO usar 12/13 = USB-JTAG). S3 -> ajustar defines al montarlo.
+ * PINES: los define la placa, NO este fichero. En el ESP32-1732S019 (S3) van en
+ * BoardS3.h; en la placa vieja C6 eran TX=GPIO20 y RTR=GPIO23.
+ *
+ * ⚠️ OJO AL PORTAR: en el C6 el TX de la cinta era el GPIO20, pero en el S3 el
+ * GPIO20 es el D+ del USB HOST. Dejar el valor viejo no da error de compilacion,
+ * da un bus USB muerto. Por eso los pines vienen de un unico sitio revisado.
  *
  * El disparo (PLAY) llegara de la fase de catalogo (comando UNAPI custom /
  * subida desde SD). Este modulo expone la API y no toca el parser de ducasp.
  */
 
 #include "tsx2cvs.h"
+#include "BoardS3.h"
 #include <vector>
 
 #ifndef TAPE_TX_PIN
-#define TAPE_TX_PIN  20      // C6: GPIO20 -> FPGA pin 26 (datos CVS1)
+#define TAPE_TX_PIN  S3_FPGA_TAPE_TX    // GPIO38 -> FPGA pin 26 (datos CVS1)
 #endif
 #ifndef TAPE_RTR_PIN
-#define TAPE_RTR_PIN 23      // C6: GPIO23 <- FPGA pin 32 (1 = enviar)
+#define TAPE_RTR_PIN S3_FPGA_TAPE_RTR   // GPIO2  <- FPGA pin 32 (1 = enviar)
 #endif
-#define TAPE_BAUD    115200
+#define TAPE_BAUD    S3_BAUD_TAPE
 #define TAPE_CHUNK   64      // rafaga maxima tras ver RTR alto
 
 // ---------------------------------------------------------------------------
