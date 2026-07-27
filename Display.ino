@@ -23,10 +23,10 @@
 #define LCD_RST   21
 #define LCD_BL    22
 
-// Marca y version que pinta el titulo del LCD (peticion Albert 27/07: el
-// modulo con pantalla vive hoy en el MSXimus; para un nano, cambiar aqui)
-#define DEVICE_NAME    "MSXimus"
-#define DEVICE_VERSION "v2.0"
+// Titulo del LCD. NEUTRO a proposito ("MSX" a secas, decision Albert 27/07):
+// este firmware es COMUN al MSXimus y al MSXnano — la version del core no es
+// cosa del ESP. Quien quiera personalizarlo: cambiar este define.
+#define DEVICE_NAME    "MSX"
 #define TURBO_PIN 3       // GPIO libre del C6 (header) cableado al pin de turbo del FPGA
 
 // Colores RGB565
@@ -71,7 +71,7 @@ void displaySetup()
     gfx->setTextColor(COL_CYAN);
     gfx->setTextSize(2);
     gfx->setCursor(6, 6);
-    gfx->print(DEVICE_NAME " " DEVICE_VERSION);
+    gfx->print(DEVICE_NAME);
     gfx->drawFastHLine(0, 28, 240, COL_DARKGREY);
     gfx->drawFastHLine(0, 108, 240, COL_DARKGREY);
     gfx->drawFastHLine(0, 152, 240, COL_DARKGREY);
