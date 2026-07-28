@@ -50,6 +50,11 @@ v0.3
     - Secondary capabilities bit 10 set (SSH client)
 */
 #include "UNAPIESP.h"
+// Mapa de pines y SELECTOR DE PLACA del companion MSXnano. Tiene que incluirse
+// AQUI, en el sketch principal: el IDE concatena los .ino empezando por este, y
+// si BOARD_MSXNANO_S3 solo se definiera en un modulo posterior, los #ifdef de
+// setup() y loop() -que van antes- no lo verian y se compilaria la placa vieja.
+#include "BoardS3.h"
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <Update.h>
@@ -494,8 +499,17 @@ void setup() {
   Serial.print(" ");
   Serial.println(FIRMWARETYPE);
   Serial.println("(c) 2019-2026 Oduvaldo Pavan Junior - ducasp@gmail.com");
-  displaySetup();               // <-- pantalla de estado WiFi (Display.ino, anadido para MSXnano)
-  tapeSetup();                  // <-- cinta virtual por stream (Tape.ino: UART1 GPIO20 + RTR GPIO23)
+  // --- companions del MSXnano -------------------------------------------
+  // La placa S3 (ESP32-1732S019) unifica lo que antes hacian dos: el C6 con su
+  // pantallita y la Pico Zero con el teclado/joystick USB. Los pines y el
+  // selector de placa viven en BoardS3.h.
+#ifdef BOARD_MSXNANO_S3
+  screenSetup();                // pantalla 320x170: arranque BASIC -> MSX-DOS (ScreenS3)
+  usbHostSetup();               // teclado + mando USB -> protocolo del FPGA (UsbHost.ino)
+#else
+  displaySetup();               // pantalla de estado WiFi de la placa C6 (Display.ino)
+#endif
+  tapeSetup();                  // cinta virtual por stream (Tape.ino; pines en BoardS3.h)
   longReadyTimeOut = 0;
   btReadyRetries = 3;
   btReceivedCommand = false;
@@ -3897,7 +3911,15 @@ proccesscmd:
 void loop() {
   unsigned int uiI;
 
-  displayTask();                // <-- refresca la pantalla (self-throttled 1/s, Display.ino)
+  // Ambos se auto-regulan por dentro y NO bloquean: este loop tambien atiende
+  // el enlace UNAPI con el MSX, que es lo prioritario.
+#ifdef BOARD_MSXNANO_S3
+  screenTick();                 // anima el arranque y refresca la consola MSX-DOS
+  usbHostTask();                // bombea el USB y emite el resync de 250 ms que
+                                // mantiene callado el watchdog de 1 s del FPGA
+#else
+  displayTask();                // refresca la pantalla de la placa C6 (1/s)
+#endif
 
   if (bDisableRadioPending) {
     bDisableRadioPending = false;

@@ -11,6 +11,18 @@
  *        Mientras no este cableado, INPUT_PULLDOWN lo lee 0 -> muestra "Normal".
  */
 
+#include "BoardS3.h"      // selector de placa (define BOARD_MSXNANO_S3)
+
+// ---------------------------------------------------------------------------
+// ESTE MODULO ES DE LA PLACA VIEJA (ESP32-C6-LCD-1.3, panel 240x240).
+// En el companion S3 (ESP32-1732S019, panel 170x320) manda ScreenS3, asi que
+// aqui no se compila nada: sus objetos globales se construirian con los pines
+// del C6 -que en el S3 son otra cosa- y ademas sobraria un driver de pantalla
+// entero. Se conserva el fichero, no se borra, porque el C6 sigue vivo en el
+// MSXimus y esta rama tiene que poder volver atras sin resucitar codigo.
+// ---------------------------------------------------------------------------
+#ifndef BOARD_MSXNANO_S3
+
 #include <Arduino_GFX_Library.h>
 #include <WiFi.h>
 #include <time.h>
@@ -178,3 +190,5 @@ void displayTask()
         }
     }
 }
+
+#endif // !BOARD_MSXNANO_S3 (pantalla de la placa C6; en el S3 manda ScreenS3)

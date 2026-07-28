@@ -31,6 +31,12 @@
 #ifndef BOARD_S3_H
 #define BOARD_S3_H
 
+// Selector de placa. Incluir este fichero es lo que declara que estamos
+// compilando para el companion S3; los modulos que difieren entre placas
+// (pantalla, USB host) se guardan con este simbolo para que la rama del C6
+// -que sigue viva en el MSXimus- no se rompa.
+#define BOARD_MSXNANO_S3   1
+
 // ---------------------------------------------------------------------------
 // LCD ST7789V - SPI (SPI2_HOST, modo 3)
 // ---------------------------------------------------------------------------
