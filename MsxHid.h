@@ -171,7 +171,7 @@ public:
     // Mando HID generico -> (base, autofire), clon de gamepad_report_receive().
     static void decodeGamepad(const MsxJoyInput& in, uint8_t* base, uint8_t* af);
     // Mando XInput (Xbox) -> (base, autofire), clon de tuh_xinput_report_received_cb().
-    // Se conserva aunque hoy no haya transporte XInput en el S3 (ver UsbHost.ino).
+    // El transporte en el S3 lo pone XInputHost.cpp (ver UsbHost.ino).
     static void decodeXInput(uint16_t wButtons, int16_t thumbLX, int16_t thumbLY,
                              uint8_t* base, uint8_t* af);
 

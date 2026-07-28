@@ -19,18 +19,24 @@
  *  - Hub USB AUTO-ALIMENTADO: el S3 no da corriente al bus.
  *
  * ---------------------------------------------------------------------------
- * XINPUT (mandos Xbox): NO SOPORTADO HOY. Leelo antes de comprar un mando.
+ * XINPUT (mandos Xbox): SI, por un cliente USB propio. Ver XInputHost.h.
  * ---------------------------------------------------------------------------
  * Un mando XInput no es HID: expone una interfaz vendor-specific (clase 0xFF,
- * subclase 0x5D) con endpoints de INTERRUPCION. EspUsbHost 2.5.2 tiene API
- * vendor, pero su propia especificacion excluye explicitamente los endpoints de
- * interrupcion (solo bulk + control EP0), asi que no hay por donde leer los
- * reports del mando. En el RP2040 esto lo resolvia el driver vendorizado de
- * Ryzee119 sobre TinyUSB, que aqui no existe.
- * El MAPEO XInput se conserva intacto y probado en MsxHid::decodeXInput() (cruz,
- * stick, A/B a disparo, X/Y arman el autofire): el dia que haya transporte, se
- * engancha en una linea. Mientras tanto: mandos HID (DirectInput). Muchos pads
- * "de PC" llevan un interruptor XInput/DInput -> ponerlo en DInput.
+ * subclase 0x5D) con endpoints de INTERRUPCION. EspUsbHost 2.5.2 no la reclama
+ * (su rama vendor solo se activa para chips USB-serie de una lista blanca), asi
+ * que no hay quien sondee ese endpoint.
+ * La solucion NO es cambiar de libreria: el usb_host de ESP-IDF admite VARIOS
+ * clientes en el mismo bus siempre que no se peleen por la misma interfaz, y
+ * admite transferencias de interrupcion. XInputHost.cpp registra un segundo
+ * cliente que reclama SOLO la interfaz del mando y le hace polling de su
+ * interrupt-IN; EspUsbHost sigue siendo el dueno del bus (install + hub +
+ * teclado + pads HID) y no se entera de nada.
+ * Cubre 360 por cable, receptor inalambrico 360 y Xbox original. NO cubre One /
+ * Series: esos necesitan un paquete de encendido por interrupt-OUT y este
+ * driver es solo-IN por contrato (herencia del RP2040, donde el OUT rompia el
+ * mando detras de un hub). Con un One/Series: ponlo en DirectInput si puede, o
+ * usa otro mando.
+ * El MAPEO sigue viviendo, intacto y probado, en MsxHid::decodeXInput().
  *
  * ---------------------------------------------------------------------------
  * CONCURRENCIA
@@ -52,6 +58,7 @@
 
 #include "EspUsbHost.h"
 #include "MsxHid.h"
+#include "XInputHost.h"
 #include "BoardS3.h"
 
 #if !defined(ESP_ARDUINO_VERSION) || !defined(ESP_ARDUINO_VERSION_VAL) || \
@@ -181,6 +188,48 @@ static void onGamepad(const EspUsbHostGamepadEvent& event) {
 }
 
 // ---------------------------------------------------------------------------
+// Mando XInput (Xbox). Llega ya troceado desde XInputHost (wButtons + stick
+// izquierdo en el formato canonico de Ryzee119) y se le aplica el MISMO mapeo
+// verificado que usaba el RP2040. Comparte puerto, mutex y autofire con los
+// mandos HID: para MsxHid un mando es un mando.
+//
+// El callback sale de la tarea de XInputHost, un tercer contexto ademas de
+// loop() y de la tarea de EspUsbHost. De ahi el mutex, igual que en onGamepad().
+// ---------------------------------------------------------------------------
+static void onXInputReport(uint8_t address, uint16_t wButtons,
+                           int16_t thumbLX, int16_t thumbLY) {
+    uint8_t base = 0, af = 0;
+    MsxHid::decodeXInput(wButtons, thumbLX, thumbLY, &base, &af);
+
+    hidLock();
+    uint8_t port = padPortFor(address);
+    if (!g_usbHostPadUp) g_usbHostPadUp = 1;
+    s_hid.joystickInput(port, base, af);   // solo latchea; emite tick()
+    hidUnlock();
+}
+
+static void onXInputMount(uint8_t address, XInputType type) {
+    (void)type;
+    hidLock();
+    uint8_t port = padPortFor(address);
+    g_usbHostPadUp = 1;
+    s_hid.joystickAttached(port);          // linea base a cero en el FPGA
+    hidUnlock();
+}
+
+static void onXInputUmount(uint8_t address) {
+    hidLock();
+    for (uint8_t p = 0; p < 2; p++) {
+        if (s_padAddr[p] == address) {
+            s_padAddr[p] = 0;
+            s_hid.joystickDetached(p);     // suelta direcciones y disparos
+        }
+    }
+    g_usbHostPadUp = (s_padAddr[0] || s_padAddr[1]) ? 1 : 0;
+    hidUnlock();
+}
+
+// ---------------------------------------------------------------------------
 // Conexion / desconexion. El rol (teclado o mando) se sabe por el tipo de
 // report que llega, asi que en la conexion solo se anota y en la desconexion se
 // libera lo que corresponda: lo importante es no dejar una tecla o una
@@ -222,6 +271,16 @@ void usbHostSetup() {
     // calcularia la libreria no se usa para nada.
 
     s_usb.begin();   // arranca la tarea del host USB
+
+    // XInput DESPUES y solo despues: ESP-IDF exige usb_host_install() (que hace
+    // EspUsbHost dentro de SU tarea) antes de registrar ningun cliente.
+    // xinputHostBegin() reintenta el registro hasta 2 s por si la tarea de
+    // EspUsbHost aun no ha llegado al install.
+    if (!xinputHostBegin(onXInputReport, onXInputMount, onXInputUmount)) {
+        // No es fatal: el teclado y los mandos HID siguen funcionando. Se pierde
+        // solo el soporte de mandos Xbox.
+        log_w("XInputHost no arranco: mandos Xbox no disponibles");
+    }
 }
 
 void usbHostTask() {

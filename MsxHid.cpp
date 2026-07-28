@@ -505,9 +505,9 @@ void MsxHid::decodeGamepad(const MsxJoyInput& in, uint8_t* base, uint8_t* af) {
 
 // tuh_xinput_report_received_cb(): mando XInput (Xbox) -> mismo byte MSX.
 // Los valores de wButtons son los de xinput_host.h (Ryzee119).
-// NOTA: hoy no hay transporte XInput en el S3 (EspUsbHost no lo cubre, ver
-// UsbHost.ino); esta funcion existe para conservar el mapeo verificado y
-// poder engancharlo el dia que haya driver, sin volver a decidir nada.
+// El transporte en el S3 lo pone XInputHost.cpp (cliente propio del usb_host de
+// ESP-IDF, conviviendo con EspUsbHost). Esta funcion no cambia: sigue siendo el
+// unico sitio donde se decide que hace cada boton en el MSX.
 void MsxHid::decodeXInput(uint16_t wButtons, int16_t thumbLX, int16_t thumbLY,
                           uint8_t* base, uint8_t* af) {
     uint8_t b = 0;
