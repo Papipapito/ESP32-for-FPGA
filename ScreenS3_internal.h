@@ -82,6 +82,11 @@ void cellClearAll(uint8_t attr);
 // Sube una fila el bloque [firstRow..lastRow] y deja lastRow en blanco.
 void cellScrollUp(int firstRow, int lastRow, uint8_t fillAttr);
 
+// Pinta el logo de arranque (bitmap, se salta el motor de celdas) e invalida
+// la rejilla para que la siguiente pantalla se repinte entera.
+void screenDrawLogo();
+void screenInvalidate();
+
 // ===========================================================================
 //  ESTADO COMPARTIDO
 // ===========================================================================

@@ -55,6 +55,14 @@ v0.3
 // si BOARD_MSXNANO_S3 solo se definiera en un modulo posterior, los #ifdef de
 // setup() y loop() -que van antes- no lo verian y se compilaria la placa vieja.
 #include "BoardS3.h"
+// Contratos de los modulos del companion S3. Van aqui porque su implementacion
+// vive en .cpp (unidades de traduccion aparte), no en .ino: el sketch no ve sus
+// funciones si no incluimos las cabeceras. Los .ino SI se concatenan con este y
+// no necesitan include (Tape.ino, TapeWeb.ino).
+#ifdef BOARD_MSXNANO_S3
+  #include "ScreenS3.h"     // pantalla: arranque BASIC -> MSX-DOS
+  #include "UsbHost.h"      // teclado y mando USB -> protocolo del FPGA
+#endif
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <Update.h>

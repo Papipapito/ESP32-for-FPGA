@@ -50,6 +50,21 @@
 // siempre si un subsistema nunca contesta.
 #define SCR_T_BOOT_TIMEOUT    45000
 
+// Fase 0: logo de MSX Barcelona antes del BASIC. A 0 se salta y el arranque
+// empieza directamente en la pantalla azul.
+#ifndef SCREEN_BOOT_LOGO
+  #define SCREEN_BOOT_LOGO 1
+#endif
+#define SCR_T_LOGO            2500     // cuanto se queda el logo en pantalla
+
+// Franja de teclas de funcion al pie de la pantalla de BASIC. APAGADA: en la
+// placa real se vio que durante el arranque no aporta (hora, WiFi y temperatura
+// aun no existen) y ensucia una pantalla que gana estando limpia. La informacion
+// sale igualmente despues, en la consola MSX-DOS. A 1 vuelve.
+#ifndef SCREEN_BASIC_FKEY_STRIP
+  #define SCREEN_BASIC_FKEY_STRIP 0
+#endif
+
 // Cursor: 0 = guion bajo (como en los mockups del diseno), 1 = bloque solido
 // (que es lo que hace el MSX de verdad). Un cambio de un byte.
 #ifndef SCREEN_CURSOR_BLOCK
@@ -67,6 +82,7 @@
 // Fases del arranque. Ver SCREEN_DESIGN.md para el diagrama completo.
 enum ScrState {
     ST_INIT = 0,    // LCD listo, nada pintado
+    ST_LOGO,        // fase 0: logo de MSX Barcelona (bitmap)
     ST_BASIC_TYPE,  // fase 1: tecleando el banner de BASIC
     ST_WAIT,        // fase 2: cursor parpadeando, esperando WiFi + USB REALES
     ST_TYPE_CMD,    // fase 3: tecleando `call system`
@@ -187,6 +203,8 @@ static const char *BASIC_BANNER[] = {
 
 // La franja de teclas de funcion: 5 huecos de 8 caracteres = 40 exactos.
 // Contenido: hora, TURBO, WiFi, temperatura y version.
+#if SCREEN_BASIC_FKEY_STRIP
+// Solo se compilan si la franja esta activada (ver SCREEN_BASIC_FKEY_STRIP).
 static void stripSlot(int slot, const char *txt)
 {
     char pad[9];
@@ -207,11 +225,14 @@ static void basicStripRender()
     snprintf(t, sizeof(t), "TEMP %dC", (int)(g_scr.tempC + 0.5f));  stripSlot(3, t);
     stripSlot(4, SCREEN_MACHINE_VER);
 }
+#endif // SCREEN_BASIC_FKEY_STRIP
 
 static void basicScreenInit()
 {
     cellClearAll(ATTR_BASIC);
+#if SCREEN_BASIC_FKEY_STRIP
     cellRowFill(SCR_ROWS - 1, ' ', ATTR_STRIP);
+#endif
     s_bLine = 0; s_bCol = 0;
     g_scr.curRow = 0; g_scr.curCol = 0;
 }
@@ -332,6 +353,23 @@ void scrBootTick(uint32_t now)
     switch (s_state) {
 
     case ST_INIT:
+        // Fase 0: el logo de MSX Barcelona. El MISMO original que usa el logo
+        // de arranque del propio MSX, asi que la placa y la maquina ensenan la
+        // misma marca. Es un bitmap: se pinta de una sola vez saltandose el
+        // motor de celdas (el driver invalida la rejilla al terminar para que
+        // el BASIC repinte encima sin dejar restos).
+#if SCREEN_BOOT_LOGO
+        screenDrawLogo();
+        s_tNext = now + SCR_T_LOGO;
+        s_state = ST_LOGO;
+        break;
+
+    case ST_LOGO:
+        if ((int32_t)(now - s_tNext) < 0) break;
+        // Se acabo el logo: descongelar el motor de celdas y forzar repintado
+        // completo, que debajo hay un bitmap y no lo que la rejilla cree.
+        screenInvalidate();
+#endif
         basicScreenInit();
         s_tNext = now;
         s_state = ST_BASIC_TYPE;
@@ -425,11 +463,17 @@ void scrBootTick(uint32_t now)
         break;
     }
 
-    // La franja de teclas vive en todas las pantallas de BASIC.
+    // Franja de teclas de funcion: APAGADA durante el arranque (decision de
+    // Albert al verla en la placa, 28/07). Mientras carga no aporta nada -la
+    // hora, el WiFi y la temperatura todavia no existen- y ensucia una pantalla
+    // que se ve mejor limpia. Los datos ya salen luego en la consola MSX-DOS.
+    // Ponerlo a 1 la devuelve.
+#if SCREEN_BASIC_FKEY_STRIP
     if (s_state != ST_DOS && s_state != ST_INIT) {
         static uint32_t tStrip = 0;
         if (now - tStrip >= SCR_T_DOS_REFRESH) { tStrip = now; basicStripRender(); }
     }
+#endif
 }
 
 // ===========================================================================

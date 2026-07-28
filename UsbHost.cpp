@@ -1,5 +1,5 @@
 /*
- * UsbHost.ino - Teclado y mando USB del MSXnano sobre ESP32-S3 (companion).
+ * UsbHost.cpp - Teclado y mando USB del MSXnano sobre ESP32-S3 (companion).
  *
  * Sustituye a la Pico Zero RP2040: el FPGA NO CAMBIA, asi que este modulo habla
  * EXACTAMENTE el mismo protocolo (ver MsxHid.h, contrato congelado). Aqui solo
@@ -51,6 +51,11 @@
 // Solo el ESP32-S3 (y el P4) tienen USB OTG capaz de hacer de host. En el C6
 // este fichero no debe ni intentar compilar: no existe la libreria ni el
 // periferico. Las dos funciones publicas quedan como stubs vacios.
+// Fuera del #if a proposito: Arduino.h y el propio contrato tienen que estar
+// disponibles en CUALQUIER placa, porque los stubs del #else tambien los usan.
+#include <Arduino.h>
+#include "UsbHost.h"
+
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
 
 #include <freertos/FreeRTOS.h>
@@ -63,7 +68,7 @@
 
 #if !defined(ESP_ARDUINO_VERSION) || !defined(ESP_ARDUINO_VERSION_VAL) || \
     (ESP_ARDUINO_VERSION < ESP_ARDUINO_VERSION_VAL(3, 2, 0))
-#error "UsbHost.ino necesita Arduino-ESP32 >= 3.2.0 (hubs USB activados por defecto)"
+#error "UsbHost.cpp necesita Arduino-ESP32 >= 3.2.0 (hubs USB activados por defecto)"
 #endif
 
 // UART hacia el FPGA: TX-only. GPIO42 -> pin 31 del Tang Nano (kbd_uart_rx.v).

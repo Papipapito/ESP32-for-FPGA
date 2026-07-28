@@ -40,6 +40,13 @@ public:
     bool _shared;
 };
 
+// Cuenta los pixeles empujados por el camino de bitmap (writeRepeat), para
+// poder comprobar en el test que el logo cubre EXACTAMENTE la pantalla.
+extern unsigned long g_logoPixels;
+
+// Arduino_TFT existe de verdad en la libreria y es donde viven writeAddrWindow()
+// y writeRepeat(); el driver apunta a este tipo por eso mismo. El stub reproduce
+// la jerarquia real: Arduino_ST7789 -> Arduino_TFT -> Arduino_GFX.
 class Arduino_GFX
 {
 public:
@@ -60,6 +67,8 @@ public:
         (void)x; (void)y; (void)bmp; (void)w; (void)h;
         g_blitCount++;
     }
+    virtual void startWrite() {}
+    virtual void endWrite() {}
     int16_t width() const { return _width; }
     int16_t height() const { return _height; }
 
@@ -68,14 +77,29 @@ protected:
     uint8_t _rotation = 0;
 };
 
-class Arduino_ST7789 : public Arduino_GFX
+class Arduino_TFT : public Arduino_GFX
+{
+public:
+    Arduino_TFT(int16_t w, int16_t h) : Arduino_GFX(w, h) {}
+    virtual void writeAddrWindow(int16_t x, int16_t y, uint16_t w, uint16_t h)
+    {
+        (void)x; (void)y; (void)w; (void)h;
+    }
+    virtual void writeRepeat(uint16_t color, uint32_t len)
+    {
+        (void)color;
+        g_logoPixels += len;
+    }
+};
+
+class Arduino_ST7789 : public Arduino_TFT
 {
 public:
     Arduino_ST7789(Arduino_DataBus *bus, int8_t rst = GFX_NOT_DEFINED, uint8_t r = 0,
                    bool ips = false, int16_t w = 240, int16_t h = 320,
                    uint8_t col_offset1 = 0, uint8_t row_offset1 = 0,
                    uint8_t col_offset2 = 0, uint8_t row_offset2 = 0)
-        : Arduino_GFX(w, h), _bus(bus), _rst(rst), _ips(ips),
+        : Arduino_TFT(w, h), _bus(bus), _rst(rst), _ips(ips),
           _c1(col_offset1), _r1(row_offset1), _c2(col_offset2), _r2(row_offset2)
     {
         setRotation(r);

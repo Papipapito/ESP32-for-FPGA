@@ -28,6 +28,7 @@ float    g_fakeTempC  = 48.0f;
 int      g_blDuty     = 0;
 long     g_blitCount  = 0;
 long     g_fillScreenCount = 0;
+unsigned long g_logoPixels = 0;   // pixeles empujados por el volcado del logo
 
 // Se incluyen LOS DOS .cpp para tener acceso a los estaticos internos: s_buf y
 // el motor de celdas viven en el driver, y s_state (la fase del arranque) en la
@@ -91,6 +92,29 @@ static void escenarioFeliz()
           "geometria en horizontal = 320x170");
     check(SCR_COLS == 40, "40 columnas exactas, como el SCREEN 0 del MSX");
     check(g_blDuty == 0, "el backlight arranca APAGADO");
+
+    // -- Fase 0: el logo de MSX Barcelona -----------------------------------
+    // La maquina de estados avanza en screenTick(), no en screenSetup(): hasta
+    // el primer tick seguimos en ST_INIT.
+    advance(1);
+    check(s_state == ST_LOGO, "fase 0: arranca con el logo");
+    // El RLE tiene que cubrir la pantalla EXACTA: si sobran o faltan pixeles,
+    // la ventana de escritura del ST7789 queda descuadrada y el logo saldria
+    // torcido o a medias. Es la comprobacion que no se puede hacer a ojo.
+    check(g_logoPixels == (unsigned long)LOGO_W * LOGO_H,
+          "el logo cubre exactamente 320x170 pixeles");
+    // REGRESION (visto en la placa): el motor de celdas repintaba su rejilla
+    // vacia ENCIMA del logo y lo borraba en menos de un segundo. Mientras dura
+    // la fase del logo NO puede volcarse ni una celda al LCD.
+    long blitsLogo = g_blitCount;
+    advance(SCR_T_LOGO - 200);
+    check(s_state == ST_LOGO, "el logo se mantiene sus segundos");
+    check(g_blitCount == blitsLogo,
+          "el motor de celdas NO pinta encima del logo (se borraba)");
+    advance(200);
+    check(s_state != ST_LOGO, "y despues da paso al BASIC");
+    check(g_blitCount > blitsLogo,
+          "al salir del logo si repinta (rejilla invalidada)");
 
     // -- Fase 1: el banner se teclea solo -----------------------------------
     advance(3000);
@@ -169,7 +193,7 @@ static void escenarioFallo()
     printf("\n=== ESCENARIO 2: sin WiFi (no debe hacer `call system`) ===\n");
 
     check(screenSetup(), "screenSetup() arranca");
-    advance(3000);
+    advance(SCR_T_LOGO + 3000);      // logo + tecleo del banner
     check(s_state == ST_WAIT, "fase 1 completada");
 
     screenSetUsb(true, false);
@@ -184,7 +208,17 @@ static void escenarioFallo()
 
     advance(20000);
     check(s_state == ST_FAILED, "se queda ahi indefinidamente, sin saltar a DOS");
+    // La franja de teclas va APAGADA durante el arranque (SCREEN_BASIC_FKEY_STRIP=0):
+    // mientras carga no aporta -hora, WiFi y temperatura aun no existen- y la
+    // pantalla gana estando limpia. Se comprueba justo lo contrario que antes:
+    // que la ultima fila esta VACIA. Si algun dia se reactiva la franja, este
+    // check hay que darle la vuelta.
+#if SCREEN_BASIC_FKEY_STRIP
     check(screenHas("WiFi --"), "la franja de teclas refleja el WiFi caido");
+#else
+    check(!screenHas("WiFi --") && !screenHas("TURBO"),
+          "sin franja de teclas durante el arranque (pantalla limpia)");
+#endif
 
     // Si el WiFi entra mas tarde, el arranque se REANUDA.
     screenSetWifi("MSX-BCN", "192.168.1.42", -70, true);

@@ -92,6 +92,7 @@
 #include "BoardS3.h"        // pinout UNICO y verificado de la placa
 #include "ScreenS3.h"
 #include "ScreenS3_internal.h"   // geometria, paleta, costura con la narrativa
+#include "LogoMsxBcn.h"          // bitmap RLE del logo (tools/make_logo_lcd.py)
 #include "Font8x8MSX.h"
 
 // ===========================================================================
@@ -143,7 +144,12 @@ static const uint16_t SCR_PAL[PAL_COUNT] = {
 //  ESTADO
 // ===========================================================================
 static Arduino_DataBus *s_bus = nullptr;
-static Arduino_GFX     *s_gfx = nullptr;
+// Arduino_TFT y no Arduino_GFX: writeAddrWindow() y writeRepeat() -que usa el
+// volcado del logo- viven en Arduino_TFT, no en la clase base. Arduino_ST7789
+// deriva de Arduino_TFT, que a su vez deriva de Arduino_GFX, asi que todo lo
+// demas sigue disponible igual. (Comprobado en las cabeceras de la libreria
+// instalada, no de memoria: Arduino_GFX.h:288/293 y Arduino_TFT.h:21/31.)
+static Arduino_TFT     *s_gfx = nullptr;
 static bool             s_lcdOk = false;
 
 static ScrCell  s_buf[SCR_ROWS][SCR_COLS];      // lo que debe verse
@@ -257,8 +263,18 @@ static void cellBlit(int r, int c)
 // Vuelca hasta SCREEN_CELLS_PER_TICK celdas sucias y vuelve. Recorre las filas
 // en round-robin para que ninguna se quede sin volcar si el presupuesto se
 // agota siempre en la misma.
+// Mientras hay un bitmap en pantalla (el logo de arranque) el motor de celdas
+// se CONGELA. Sin esto pasa lo siguiente, que se vio en la placa: al invalidar
+// la rejilla el motor considera sucias las 840 celdas y se pone a pintarlas
+// -vacias, azules- ENCIMA del logo, que desaparece en menos de un segundo.
+// El motor no sabe que hay debajo; solo sabe que su rejilla no coincide con lo
+// que cree que hay. Asi que hay que decirle explicitamente que no toque nada
+// hasta que la fase del bitmap termine.
+static bool s_bitmapHold = false;
+
 static void cellFlush()
 {
+    if (s_bitmapHold) return;       // logo en pantalla: no pintar nada encima
     int budget = SCREEN_CELLS_PER_TICK;
     for (int n = 0; n < SCR_ROWS && budget > 0; n++) {
         const int r = (s_scanRow + n) % SCR_ROWS;
@@ -302,6 +318,55 @@ static void blInit()
     ledcAttachPin(S3_LCD_BL, SCR_BL_CHANNEL);
 #endif
     blApply(0);      // apagado ANTES de tocar el panel: nadie ve el ruido de encendido
+}
+
+// ===========================================================================
+//  LOGO DE ARRANQUE
+// ===========================================================================
+// Pinta el logo de MSX Barcelona SALTANDOSE el motor de celdas: es un bitmap,
+// no texto. Los datos vienen comprimidos con RLE (ver LogoMsxBcn.h y el script
+// que lo genera); se descomprime al vuelo por tramos y se empuja al LCD sin
+// buffer intermedio, que no hay 108 KB de RAM que malgastar en esto.
+//
+// Hay DOS trampas aqui, y las dos se pagan en pantalla:
+//
+//  1. Mientras el logo esta visible el motor de celdas tiene que estar QUIETO.
+//     Si no, repinta su rejilla (vacia) encima y el logo se borra solo. Por eso
+//     se levanta s_bitmapHold, que congela cellFlush() hasta que alguien llame
+//     a screenInvalidate().
+//  2. Al escribir directo en el LCD, s_shadow -lo que el motor CREE que hay en
+//     pantalla- se queda mintiendo. Si despues el BASIC pide azul donde el
+//     shadow ya dice azul, el motor se lo salta por optimizacion y el logo se
+//     quedaria pegado. Por eso al descongelar hay que invalidar TODO.
+//
+// Resumen del contrato: screenDrawLogo() pinta y congela; screenInvalidate()
+// descongela y fuerza un repintado completo. Quien muestra un bitmap es
+// responsable de llamar a la segunda cuando termina.
+void screenDrawLogo()
+{
+    if (!s_lcdOk) return;
+
+    s_gfx->startWrite();
+    s_gfx->writeAddrWindow(0, 0, LOGO_W, LOGO_H);
+    for (uint32_t i = 0; i < LOGO_RUNS; i++) {
+        const uint16_t n = LOGO_RLE[i][0];
+        const uint16_t c = LOGO_RLE[i][1];
+        s_gfx->writeRepeat(c, n);
+    }
+    s_gfx->endWrite();
+
+    s_bitmapHold = true;        // el motor no toca nada hasta el invalidate
+}
+
+// Descongela el motor y marca TODA la rejilla como no dibujada, para que la
+// siguiente pantalla se repinte entera sobre lo que hubiera (el logo).
+void screenInvalidate()
+{
+    s_bitmapHold = false;
+    // 0xFF en el caracter es un valor que el motor no genera nunca, asi que
+    // ninguna celda puede coincidir con el shadow y todas se consideran sucias.
+    memset(s_shadow, 0xFF, sizeof(s_shadow));
+    memset(s_rowDirty, 1, sizeof(s_rowDirty));
 }
 
 // ===========================================================================
