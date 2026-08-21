@@ -1,84 +1,126 @@
-# ESP32 UNAPI Firmware
+# ESP32 for FPGA
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/R6R2BRGX6)
+Firmware del **companion ESP32** para los cores MSX en FPGA de este proyecto:
+**MSXnano** (Tang Nano 20K) y **MSXimus** (Tang Console 60K).
 
----
-
-## Uso en MSXnano / MSXimus: dos modulos WiFi, el MISMO `.fs`
-
-El core FPGA del **MSXnano / MSXimus** habla WiFi por un **puente UART** (`wifi_lite.vhd`)
-fijo a **859372 bps, 8N1, 3.3V**, en los pines **27 (FPGA->WiFi TX)** y **28 (WiFi->FPGA RX)**.
-Ese puente es **agnostico al modulo**: el **mismo bitstream `.fs`** funciona con cualquiera
-de estos dos, **solo cambia el firmware del aparato WiFi** (el FPGA no se recompila):
-
-| Modulo | Firmware | Baud | Cableado |
-|---|---|---|---|
-| **ESP32-C6** (Waveshare C6-LCD-1.3) | **este repo** (rama `msxnano`): `#define ESP32_C6`, `BR859372` | 859372 | IO16->pin28, IO17->pin27, **5V** (la placa regula a 3.3V), GND |
-| **ESP-01S** (ESP8266) | **[ducasp/ESP8266-UNAPI-Firmware](https://github.com/ducasp/ESP8266-UNAPI-Firmware)** — binario precompilado en Releases (v1.4), ya a 859372 | 859372 | TXD->pin28, RXD->pin27, **3.3V**, CH_PD+GPIO0->3.3V, GND |
-
-- El **`.fs` es el mismo** para los dos; no se recompila el FPGA.
-- El firmware ESP8266 de ducasp **ya viene a 859372** (es su valor por defecto para
-  "ESP-01 sobre FPGA"), asi que **NO hay que compilarlo**: descarga el binario de sus
-  Releases y flashealo al ESP-01S.
-- **VOLTAJE**: el ESP-01S (ESP8266) **NO tolera 5V**. Alimentalo a **3.3V**. El arnes del
-  ESP32-C6 entrega 5V (la placa lo regula), asi que NO conectes ahi un ESP-01S pelado.
-- El firmware ESP8266 de ducasp esta probado en **ESP-01S**; algunos ESP-01 antiguos fallan.
+Un solo código, dos placas, dos máquinas.
 
 ---
 
-A sample TCP IP and SSH UNAPI driver that work along with this firmware
-is available at:
+## Qué hace
 
-(ROM Version)
-https://github.com/ducasp/MSX-Development/tree/master/UNAPI_BIOS_CUSTOM_ESP_V2
+El ESP32 es el ayudante del MSX: se ocupa de todo lo que la FPGA no debería
+tener que hacer.
 
-This application is an example of how to set configurations, scan and join networks or update firmware or certificates on IO interface:
-https://github.com/ducasp/MSX-Development/tree/master/CFGESP
+| | |
+|---|---|
+| **WiFi / UNAPI** | Pila TCP y TLS para el MSX, por UART a 859372 bps |
+| **Pantalla** | Estado del sistema, arranque, reloj |
+| **Cinta TSX** | Reproducción de cinta virtual por stream, con catálogo |
+| **Lanzador** | Núcleo File-Hunter para buscar y descargar |
+| **HID** | Teclado, mando y ratón USB → protocolo del FPGA *(sólo S3, ver abajo)* |
 
-Memory mapped IO interface version:
-https://github.com/ducasp/MSX-Development/tree/master/UPDTESP
+---
 
-# How to build it
+## Dos proyectos, un binario
 
-You will need Arduino IDE and install ESP32 Arduino IDE
+**El firmware NO sabe en qué máquina está, y no tiene por qué.** MSXnano y
+MSXimus hablan el mismo protocolo con el ESP, así que el mismo binario vale
+para las dos. No hay que elegir proyecto en ningún sitio.
 
-Choose the proper ESP32 module/board you are targeting.
+Lo único que se elige al compilar es **la placa**.
 
-To generate certificates file, first get the most up to date certificate list in PEM format:
+---
 
-https://curl.se/docs/caextract.html
+## Dos placas, y la diferencia que importa
 
-Then use the script available at:
+| | **ESP32-C6** | **ESP32-S3** |
+|---|---|---|
+| Módulo típico | ESP32-C6-LCD-1.3 | ESP32-1732S019 |
+| Pantalla | 240×240 | 320×170 |
+| **USB host** | **NO** | **SÍ** |
+| Teclado / mando / ratón USB | — | Sí |
 
-https://github.com/espressif/esp-idf/blob/master/components/mbedtls/esp_crt_bundle/gen_crt_bundle.py
+> ### ⚠️ La falta de USB host en el C6 es de SILICIO, no una decisión
+>
+> El ESP32-C6 sólo tiene **USB Serial/JTAG**: no es un host USB, y ningún
+> cambio de software lo va a convertir en uno. Por eso, en su día, el
+> companion del MSXnano necesitaba **además** una Pico Zero RP2040 sólo para
+> el teclado y el mando; y por eso la placa S3, que sí tiene USB-OTG, pudo
+> absorber las dos funciones ella sola.
+>
+> **Consecuencia práctica:** con un C6 tienes pantalla, WiFi, cinta y
+> lanzador. Teclado, mando y **ratón** por ESP existen sólo en la **S3**.
 
-To get the certificates in a single bundle file. That file you can rename to certs.bin and then upload
-it to ESP using a tool like CFGESP / UPDTESP locally or through a web server.
+### Cómo se elige
 
-# Project Design Constraints
+Todo en **`Board.h`**, que es el único sitio:
 
-This firmware was designed taking into consideration that the other end connected to it either has
-a large 2KB reception buffer OR is fast enough to pick-up data at the desired baud rate without the
-help of such large buffer.
+```c
+//#define BOARD_C6      // ESP32-C6-LCD-1.3   — panel 240x240, sin USB host
+#define BOARD_S3        // ESP32-1732S019     — panel 320x170, con USB host
+```
 
-Copyright (c) 2019 - 2026 Oduvaldo Pavan Junior ( ducasp@ gmail.com )
-All rights reserved.
+De ahí se **derivan** las capacidades (`BOARD_SCREEN_C6`, `BOARD_SCREEN_S3`,
+`BOARD_HAS_USB_HOST`) y los módulos se guardan **por capacidad, no por nombre
+de placa**. Si mañana aparece una tercera placa, sólo hay que declarar qué
+tiene. Elegir dos placas —o ninguna— da un `#error`, no un binario raro.
 
-If you integrate this on your hardware, please consider the possibility of sending one piece of it
-as a thank you to the author :) Of course this is not mandatory, if you like the idea, contact the
-author in the e-mail address above.
+---
 
-This software uses ESP32 for Arduino IDE library, from ESPRESSIF.
+## Estructura
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Lesser General Public License as 
-published by the Free Software Foundation, either version 2.1 of the
-License, or (at your option) any later version.
+| | |
+|---|---|
+| `ESP32-UNAPI-Firmware.ino` | Sketch principal: UNAPI, WiFi, bucle |
+| `Board.h` | **Selección de placa y capacidades** |
+| `BoardS3.h` | Mapa de pines de la S3 |
+| `Display.ino` | Pantalla del **C6** (240×240) |
+| `ScreenS3.*` | Pantalla de la **S3** (320×170) |
+| `UsbHost.*`, `MsxHid.*`, `XInputHost.*` | HID USB → protocolo del FPGA *(S3)* |
+| `Tape.ino`, `tsxcatalog.*`, `tsx2cvs.*` | Cinta virtual TSX |
+| `FileHunter.*` | Núcleo del lanzador |
+| `host_test/` | Bancos que corren **en el PC**, sin placa |
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+### Bancos de prueba
 
-You should have received a copy of the GNU General Public License
-along with this program.  If not, see <https://www.gnu.org/licenses/>
+Corren en WSL/Linux sin necesidad de hardware, y se compilan con `-Werror`:
+
+```bash
+cd host_test && bash test_filehunter.sh
+```
+
+Hay bancos para el lanzador, la pantalla de la S3, el HID, XInput, y dos de
+verificación byte a byte contra una implementación de referencia en Python.
+
+---
+
+## Ramas
+
+| | |
+|---|---|
+| **`unificado`** | **La línea viva.** Un firmware para las dos placas |
+| `msxnano-s3` | Histórico: companion S3 del MSXnano |
+| `msximus`, `msxnano` | Histórico: ramas por proyecto (C6) |
+| `launcher` | Histórico: donde nació el núcleo File-Hunter |
+| `main` | Espejo del upstream de ducasp |
+
+---
+
+## Origen y licencia
+
+Este firmware **deriva del excelente trabajo de Oduvaldo Pavan Junior
+(ducasp)**, [ESP32-UNAPI-Firmware](https://github.com/ducasp/ESP32-UNAPI-Firmware),
+que es quien puso toda la pila UNAPI/WiFi que aquí se usa. Su documentación
+original se conserva en [`README-UNAPI.md`](README-UNAPI.md).
+
+El código vive aquí, y no como un fork colgando de su repositorio, por una
+razón de higiene: es el firmware de **estas** dos máquinas y evoluciona con
+ellas. **Los créditos y la licencia se conservan intactos**, tanto en el
+fichero `LICENSE` como en las cabeceras de cada fichero.
+
+**Licencia: GNU LGPL v2.1** (la del proyecto original). Las partes añadidas
+para MSXnano y MSXimus se publican bajo la misma licencia.
+
+Si este firmware te resulta útil, considera apoyar a ducasp:
+[ko-fi.com/R6R2BRGX6](https://ko-fi.com/R6R2BRGX6)
