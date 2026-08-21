@@ -114,6 +114,15 @@ Este firmware **deriva del excelente trabajo de Oduvaldo Pavan Junior
 que es quien puso toda la pila UNAPI/WiFi que aquí se usa. Su documentación
 original se conserva en [`README-UNAPI.md`](README-UNAPI.md).
 
+Autores cuyo trabajo está dentro de este código:
+
+| | |
+|---|---|
+| **Oduvaldo Pavan Junior** (ducasp) | Pila UNAPI / WiFi / TLS — la base de todo |
+| **Jeroen Taverne** | Funcionalidad HTTP (`ESP32-UNAPI-Firmware.ino`, `UNAPIESP.h`) |
+| **Leo Manes** | Contribuciones al firmware ESP32 |
+| **proyecto MSXnano / MSXimus** | Pantallas, cinta TSX, HID USB, lanzador, unificación |
+
 El código vive aquí, y no como un fork colgando de su repositorio, por una
 razón de higiene: es el firmware de **estas** dos máquinas y evoluciona con
 ellas. **Los créditos y la licencia se conservan intactos**, tanto en el
