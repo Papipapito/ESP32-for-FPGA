@@ -1,0 +1,5 @@
+# Los bancos de prueba se ejecutan en WSL. Si git deja los .sh con CRLF al
+# hacer checkout en Windows, bash falla con "$'\r': command not found" y el
+# banco PARECE roto sin estarlo. Paso el 21/08 al unificar las ramas.
+*.sh   text eol=lf
+*.py   text eol=lf

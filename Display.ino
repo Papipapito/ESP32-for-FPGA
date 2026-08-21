@@ -11,17 +11,22 @@
  *        Mientras no este cableado, INPUT_PULLDOWN lo lee 0 -> muestra "Normal".
  */
 
-#include "BoardS3.h"      // selector de placa (define BOARD_MSXNANO_S3)
+#include "Board.h"        // selector de placa y capacidades
 
 // ---------------------------------------------------------------------------
-// ESTE MODULO ES DE LA PLACA VIEJA (ESP32-C6-LCD-1.3, panel 240x240).
-// En el companion S3 (ESP32-1732S019, panel 170x320) manda ScreenS3, asi que
-// aqui no se compila nada: sus objetos globales se construirian con los pines
-// del C6 -que en el S3 son otra cosa- y ademas sobraria un driver de pantalla
-// entero. Se conserva el fichero, no se borra, porque el C6 sigue vivo en el
-// MSXimus y esta rama tiene que poder volver atras sin resucitar codigo.
+// PANTALLA DE LA PLACA C6 (ESP32-C6-LCD-1.3, panel 240x240).
+// En la S3 (ESP32-1732S019, panel 320x170) manda ScreenS3, asi que aqui no se
+// compila nada: sus objetos globales se construirian con los pines del C6 -que
+// en la S3 son otra cosa- y ademas sobraria un driver entero.
+//
+// UNIFICACION 21/08: este fichero es el de la rama `launcher`, NO el de
+// `msxnano-s3`. El de msxnano-s3 era ANTERIOR y revertia tres cosas YA
+// VALIDADAS EN PLACA el 31/07: el DEVICE_NAME, el LOGO de arranque y -la
+// importante- el arreglo de ROTACION del ST7789 (rotacion 2 con
+// ROW_OFFSET2=80, que es la trampa clasica de estos paneles). Tomar la base
+// del S3 a ciegas lo habria perdido en silencio.
 // ---------------------------------------------------------------------------
-#ifndef BOARD_MSXNANO_S3
+#ifdef BOARD_SCREEN_C6
 
 #include <Arduino_GFX_Library.h>
 #include <WiFi.h>
@@ -38,7 +43,9 @@
 // Titulo del LCD. NEUTRO a proposito ("MSX" a secas, decision Albert 27/07):
 // este firmware es COMUN al MSXimus y al MSXnano — la version del core no es
 // cosa del ESP. Quien quiera personalizarlo: cambiar este define.
-#define DEVICE_NAME    "MSX"
+#define DEVICE_NAME    "MSXimus"   // 31/07: peticion de Albert. Esta rama es la
+                                   // del MSXimus, asi que el titulo ya no tiene
+                                   // que ser neutro (la rama msxnano-s3 va aparte).
 #define TURBO_PIN 3       // GPIO libre del C6 (header) cableado al pin de turbo del FPGA
 
 // Colores RGB565
@@ -60,7 +67,24 @@ extern ESPConfig stDeviceConfiguration;      // .iGMT = offset horario en HORAS 
 extern volatile uint32_t g_lastUartMs;       // ultima actividad del enlace MSX<->ESP
 
 static Arduino_DataBus *lcd_bus = new Arduino_HWSPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI);
-static Arduino_GFX *gfx = new Arduino_ST7789(lcd_bus, LCD_RST, 0, true, 240, 240, 0, 0, 0, 0);
+// ROTACION 2 = la 0 girada 180 grados. El modulo del MSXimus 60K monta MEJOR AL
+// REVES en la caja (Albert, 31/07).
+//
+// ⚠️ EL ULTIMO 80 NO ES OPCIONAL, Y ES EL ERROR CLASICO DE ESTOS PANELES.
+// El ST7789 tiene 240x320 de RAM y este panel solo usa 240 de esas 320 filas.
+// En rotacion 0 la ventana visible son las filas 0..239; al girar 180 grados el
+// controlador invierte y pasa a ser 80..319. Sin compensarlo, TODO el contenido
+// sube 80 px: se pierden el titulo y el bloque de WiFi por arriba, y por abajo
+// se ve RAM sin inicializar (basura). Medido en placa el 31/07.
+// Por eso va en ROW_OFFSET2 (el ultimo parametro), que es el offset de fila que
+// la libreria aplica SOLO a las rotaciones invertidas (2 y 3) — el de la
+// rotacion 0 se queda a 0 y esa sigue igual que siempre.
+// Orden de los cuatro: col_offset1, row_offset1, col_offset2, row_offset2.
+//
+// ⛔ MI RAZONAMIENTO ANTERIOR ERA FALSO, queda escrito para que no se repita:
+// "el panel es cuadrado 240x240, luego la geometria es identica en las cuatro
+// rotaciones". Lo cuadrado es el PANEL, no la RAM del controlador.
+static Arduino_GFX *gfx = new Arduino_ST7789(lcd_bus, LCD_RST, 2, true, 240, 240, 0, 0, 0, 80);
 static bool lcd_ok = false;
 
 static void fmtUptime(char *buf, uint32_t ms)
@@ -68,6 +92,42 @@ static void fmtUptime(char *buf, uint32_t ms)
     uint32_t s = ms / 1000;
     sprintf(buf, "%02lu:%02lu:%02lu", (unsigned long)(s / 3600),
             (unsigned long)((s % 3600) / 60), (unsigned long)(s % 60));
+}
+
+// ---------------------------------------------------------------------------
+// LOGO DE ARRANQUE (31/07, peticion de Albert; equivalente al que ya tiene el
+// companion S3, pero con el logo del MSXimus y sin la narrativa del BASIC).
+//
+// ⚠️ NO BLOQUEA. La tentacion era pintar el logo y hacer delay(3000) aqui, pero
+// displaySetup() se llama desde el setup() del firmware UNAPI: tres segundos
+// parado ahi son tres segundos sin atender al MSX. En vez de eso se pinta el
+// logo, se apunta la hora, y displayTask() lo retira solo cuando toca.
+//
+// El bitmap va EN CRUDO (240x240x2 = 115 KB). El hermano de la S3 lo comprime
+// con RLE porque aquel firmware iba al 80% de su particion; este va al 52% de
+// 3 MB, asi que sobra sitio y nos ahorramos un decodificador que pueda fallar.
+// Se regenera con: python tools/make_logo_c6.py
+// ---------------------------------------------------------------------------
+#include "LogoMsximus.h"
+
+#define LOGO_MS   3000            // cuanto se ve el logo
+
+static uint32_t t_logo    = 0;
+static bool     logo_vivo = false;
+
+// El "marco" fijo de la pantalla de estado: titulo y lineas separadoras. Estaba
+// dentro de displaySetup(); se saca aparte porque ahora hay que pintarlo DOS
+// veces (o mejor dicho: mas tarde, cuando el logo se retira).
+static void drawChrome()
+{
+    gfx->fillScreen(COL_BLACK);
+    gfx->setTextColor(COL_CYAN);
+    gfx->setTextSize(2);
+    gfx->setCursor(6, 6);
+    gfx->print(DEVICE_NAME);
+    gfx->drawFastHLine(0, 28, 240, COL_DARKGREY);
+    gfx->drawFastHLine(0, 108, 240, COL_DARKGREY);
+    gfx->drawFastHLine(0, 152, 240, COL_DARKGREY);
 }
 
 void displaySetup()
@@ -80,19 +140,26 @@ void displaySetup()
     lcd_ok = true;
 
     gfx->fillScreen(COL_BLACK);
-    gfx->setTextColor(COL_CYAN);
-    gfx->setTextSize(2);
-    gfx->setCursor(6, 6);
-    gfx->print(DEVICE_NAME);
-    gfx->drawFastHLine(0, 28, 240, COL_DARKGREY);
-    gfx->drawFastHLine(0, 108, 240, COL_DARKGREY);
-    gfx->drawFastHLine(0, 152, 240, COL_DARKGREY);
+    gfx->draw16bitRGBBitmap(0, 0, (uint16_t *)LOGO_MSXIMUS, LOGO_W, LOGO_H);
+    t_logo    = millis();
+    logo_vivo = true;
 }
 
 void displayTask()
 {
     if (!lcd_ok) return;
     uint32_t now = millis();
+
+    // Mientras el logo esta puesto no se pinta nada mas: se sale y ya. Cuando
+    // vence el tiempo se borra, se pinta el marco y a partir de ahi la pantalla
+    // de estado funciona como siempre (sus bloques se repintan solos porque
+    // guardan el ultimo valor y ven que "ha cambiado" respecto a la pantalla en
+    // blanco).
+    if (logo_vivo) {
+        if (now - t_logo < LOGO_MS) return;
+        logo_vivo = false;
+        drawChrome();
+    }
 
     // Arranca SNTP en cuanto hay WiFi, para que el reloj de la pantalla salga sin
     // depender de que el MSX pida la hora (bSNTPOK solo se activa via peticion del MSX).
@@ -191,4 +258,4 @@ void displayTask()
     }
 }
 
-#endif // !BOARD_MSXNANO_S3 (pantalla de la placa C6; en el S3 manda ScreenS3)
+#endif // BOARD_SCREEN_C6 (pantalla del C6; en la S3 manda ScreenS3)

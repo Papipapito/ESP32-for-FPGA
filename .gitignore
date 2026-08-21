@@ -1,2 +1,13 @@
 # Artefacto local de ruflo/ruvector — no versionar
 ruvector.db
+
+# Artefactos de compilacion del IDE de Arduino y de los bancos en host
+build/
+build_c6/
+host_test/out/
+host_test/test_filehunter
+host_test/test_msxhid
+host_test/test_screens3
+host_test/test_xinput
+host_test/verify
+host_test/verify_catalog

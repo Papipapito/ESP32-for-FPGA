@@ -35,6 +35,10 @@
 // compilando para el companion S3; los modulos que difieren entre placas
 // (pantalla, USB host) se guardan con este simbolo para que la rama del C6
 // -que sigue viva en el MSXimus- no se rompa.
+// UNIFICACION 21/08: el SELECTOR de placa se ha movido a Board.h. Este
+// fichero se queda con lo suyo, el MAPA DE PINES de la S3. Lo que hay que
+// mirar en los modulos son las CAPACIDADES (BOARD_HAS_USB_HOST,
+// BOARD_SCREEN_S3), no el nombre de la placa.
 #define BOARD_MSXNANO_S3   1
 
 // ---------------------------------------------------------------------------
