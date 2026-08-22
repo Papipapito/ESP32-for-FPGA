@@ -122,13 +122,24 @@
 //
 //   ESP32-S3     dir          Tang Console 60K        senal SPI
 //   ----------   ----------   ---------------------   ----------------------
-//   GPIO38       S3 -> FPGA   J10 p20  (U20, GCLKT)   SCLK
-//   GPIO40       S3 -> FPGA   J10 p16  (N17)          MOSI  (spi_dat)
-//   GPIO42       S3 -> FPGA   J10 p22  (Y21)          CS#   (spi_csn)
-//   GPIO39       FPGA -> S3   J10 p14  (W21)          MISO  (spi_dir)
-//   GPIO41       FPGA -> S3   J10 p18  (N13)          IRQ#  (spi_irqn)
-//   GPIO2        -            -                       libre (sobra uno)
+//   GPIO4        S3 -> FPGA   J10 p20  (U20, GCLKT)   SCLK
+//   GPIO5        S3 -> FPGA   J10 p19  (V20)          MOSI  (spi_dat)
+//   GPIO6        FPGA -> S3   J10 p21  (Y22)          MISO  (spi_dir)
+//   GPIO7        S3 -> FPGA   J10 p22  (Y21)          CS#   (spi_csn)
+//   GPIO15       FPGA -> S3   J10 p23  (AB22)         IRQ#  (spi_irqn)
 //   GND          -            J10 p12                 masa comun
+//
+// Los cinco del S3 son POSICIONES CONSECUTIVAS del header IZQUIERDO (tras GND
+// y 3V3): 4, 5, 6, 7, 15. Cable de una hilera, sin cruces.
+//
+// ⚠️ NO son los mismos pines que el enlace del MSXnano: 38/39/40/41/42 los
+// ocupan aqui el UART del UNAPI y el turbo, que en el MSXimus conviven con el
+// SPI. La idea de "un cable para las dos maquinas" NO se sostiene en el
+// MSXimus, porque aqui hacen falta los dos enlaces a la vez.
+//
+// ⚠️ PROHIBIDOS aunque salgan al header: GPIO19 y GPIO20 (D-/D+ del USB host,
+// fijos por hardware) y GPIO45 (strapping VDD_SPI: alto en reset = arranque
+// raro). GPIO48, 47, 21, 16, 17 y 18 quedan LIBRES para lo que haga falta.
 //
 // Las direcciones COINCIDEN con las que ya tiene declarado el .cst del
 // MSXimus: N17 es entrada con pull-up, W21 salida con drive 8, N13 salida.
@@ -141,11 +152,11 @@
 // EL BUS SPI TIENE QUE SER EL SPI3_HOST: el SPI2 lo tiene la pantalla.
 // Modo 1 (CPOL=0, CPHA=1) y 13,33 MHz, que es a lo que corre el enlace en el
 // diseno del FPGA.
-#define S3_SPI_SCLK   38      // -> J10 p20
-#define S3_SPI_MOSI   40      // -> J10 p16
-#define S3_SPI_CS     42      // -> J10 p22
-#define S3_SPI_MISO   39      // <- J10 p14
-#define S3_SPI_IRQ    41      // <- J10 p18 (entrada, activo BAJO)
+#define S3_SPI_SCLK    4      // -> J10 p20 (U20, GCLKT_8)
+#define S3_SPI_MOSI    5      // -> J10 p19 (V20)
+#define S3_SPI_MISO    6      // <- J10 p21 (Y22)
+#define S3_SPI_CS      7      // -> J10 p22 (Y21)
+#define S3_SPI_IRQ    15      // <- J10 p23 (AB22), activo BAJO
 #define S3_SPI_HZ     13333333
 #define S3_SPI_MODE   1
 

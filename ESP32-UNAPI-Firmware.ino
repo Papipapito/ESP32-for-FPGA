@@ -64,6 +64,7 @@ v0.3
 #endif
 #ifdef BOARD_HAS_USB_HOST
   #include "UsbHost.h"      // teclado, mando (y raton) USB -> protocolo del FPGA
+  #include "Companion.h"    // enlace SPI con la FPGA (teclado/raton/joystick)
 #endif
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -524,6 +525,9 @@ void setup() {
 #endif
 #ifdef BOARD_HAS_USB_HOST
   usbHostSetup();               // teclado + mando USB -> protocolo del FPGA (solo S3)
+#ifdef BOARD_S3
+  companionSetup();             // enlace SPI con la FPGA (+ handshake de version)
+#endif
 #endif
   tapeSetup();                  // cinta virtual por stream (Tape.ino; pines en BoardS3.h)
   longReadyTimeOut = 0;
@@ -3974,6 +3978,9 @@ void loop() {
   displayTask();                // refresca la pantalla del C6 (1/s)
 #endif
 #ifdef BOARD_HAS_USB_HOST
+#ifdef BOARD_S3
+  companionTask();              // bring-up del SPI: el boton BOOT manda una 'A'
+#endif
   usbHostTask();                // bombea el USB y emite el resync de 250 ms que
                                 // mantiene callado el watchdog de 1 s del FPGA
 #endif

@@ -92,3 +92,10 @@ void compJoystick(Companion *c, uint8_t dispositivo, uint8_t bits);
 bool compStatus  (Companion *c, uint8_t *version, uint8_t *subversion);
 
 #endif // _COMPANION_H
+
+// ---- lado hardware (CompanionSpi.cpp, solo S3) ---------------------------
+#ifdef BOARD_S3
+bool companionSetup();      // arranca SPI3_HOST y hace el handshake de version
+void companionTask();       // llamar desde loop(): prueba manual con BOOT
+extern uint8_t g_companionVersion;   // 0 = la FPGA no contesta
+#endif
