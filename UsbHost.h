@@ -23,6 +23,11 @@
 
 // Arranca el host USB (teclado + mando) y la UART hacia el FPGA.
 // Llamar UNA vez desde setup().
+// Estado de lo enchufado, para que la pantalla pueda contarlo. Se leen desde
+// el loop; volatiles porque los escribe el hilo del USB host.
+extern volatile uint8_t g_usbHostKbdUp;   // 1 mientras hay teclado
+extern volatile uint8_t g_usbHostPadUp;   // 1 mientras hay algun mando
+
 void usbHostSetup();
 
 // Bombea el USB y emite el resync de 250 ms que mantiene callado el watchdog

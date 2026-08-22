@@ -3945,6 +3945,30 @@ void loop() {
       if (turbo != last_turbo) { last_turbo = turbo; screenSetTurbo(turbo != 0); }
     }
   }
+  // ---- ESTADO REAL -> PANTALLA -------------------------------------------
+  // Esto FALTABA, y era el cuelgue: screenSetWifi() y screenSetUsb() solo se
+  // llamaban desde los tests, asi que la secuencia de arranque se quedaba
+  // esperando para siempre unos avisos que nadie daba.
+  //
+  // Se alimenta por SONDEO cada segundo, no por evento de una sola vez. Es a
+  // proposito: con NADA enchufado al USB no hay ninguna enumeracion que
+  // avisar, asi que un aviso unico no llegaria JAMAS y volveriamos al mismo
+  // cuelgue. Sondeando, "no hay nada" tambien es una respuesta.
+  {
+    static uint32_t t_scr = 0;
+    uint32_t now_ms = millis();
+    if (now_ms - t_scr >= 1000) {
+      t_scr = now_ms;
+      bool wok = (WiFi.status() == WL_CONNECTED);
+      if (wok) {
+        String ip = WiFi.localIP().toString();
+        screenSetWifi(WiFi.SSID().c_str(), ip.c_str(), WiFi.RSSI(), true);
+      } else {
+        screenSetWifi(nullptr, nullptr, 0, false);
+      }
+      screenSetUsb(g_usbHostKbdUp != 0, g_usbHostPadUp != 0);
+    }
+  }
 #endif
 #ifdef BOARD_SCREEN_C6
   displayTask();                // refresca la pantalla del C6 (1/s)
