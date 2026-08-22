@@ -95,6 +95,29 @@ verificación byte a byte contra una implementación de referencia en Python.
 
 ---
 
+## Compilar
+
+Elegir la placa en `Board.h` (línea 27-28) y compilar. Ajustes del IDE para el
+**ESP32-1732S019**:
+
+| ajuste | valor |
+|---|---|
+| Board | ESP32S3 Dev Module |
+| Flash Size | 16MB (128Mb) |
+| PSRAM | OPI PSRAM |
+| Partition Scheme | 16M Flash (3MB APP/9.9MB FATFS) |
+
+⚠️ **El esquema de partición con FATFS no es opcional**: los certificados TLS
+viven en FFat y con otro esquema el firmware no arranca bien.
+
+Desde línea de órdenes, con el `arduino-cli` que trae el propio Arduino IDE:
+
+```bash
+arduino-cli compile   --fqbn "esp32:esp32:esp32s3:FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB" .
+```
+
+Referencia: 54% del espacio de programa y 32% de la RAM (core ESP32 3.3.10).
+
 ## Ramas
 
 | | |
