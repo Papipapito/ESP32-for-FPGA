@@ -134,7 +134,11 @@ static void onKeyboardState(const EspUsbHostKeyboardState& state) {
         g_usbHostKbdUp = 1;
         s_hid.keyboardAttached();
     }
-    s_hid.keyboardBitmap(state.modifiers, state.keys, sizeof(state.keys));
+    // EspUsbHost >= 2.7.0 renombro el miembro: antes 'keys', ahora 'bitmap'
+    // (y anadio 'changedBitmap'). El formato NO ha cambiado -- sigue siendo el
+    // mapa de bits, 1 bit por usage y LSB primero, que es justo lo que espera
+    // keyboardBitmap(); solo cambia el nombre.
+    s_hid.keyboardBitmap(state.modifiers, state.bitmap, sizeof(state.bitmap));
     hidUnlock();
     g_usbHostLastKeyMs = millis();
 }
