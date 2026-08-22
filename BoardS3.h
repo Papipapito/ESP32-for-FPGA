@@ -107,6 +107,49 @@
 #define S3_FPGA_TAPE_RTR   2  // <- pin 32 FPGA (entrada)
 
 // ---------------------------------------------------------------------------
+// ENLACE CON EL MSXimus (Tang Console 60K) - SPI, NO UART
+// ---------------------------------------------------------------------------
+// El MSXimus no usa el enlace de arriba: usa el companion SPI que la FPGA YA
+// TIENE instanciado (fpga_companion.v + mcu_spi_new.v + hid.v, top.v:5333),
+// el de TangCore. Ese bloque estaba pensado para el BL616 de a bordo, que
+// nunca llego a llevar firmware, asi que lleva todo este tiempo ocioso
+// esperando un maestro. Ver Companion.h para el protocolo.
+//
+// SE REUTILIZAN LOS MISMOS SEIS PINES FISICOS del enlace del MSXnano, y a
+// proposito: son seis posiciones consecutivas al final del header P2, asi que
+// EL MISMO CABLE PLANO vale para las dos maquinas. Lo unico que cambia es que
+// hablan protocolos distintos, y eso lo decide el firmware, no el cable.
+//
+//   ESP32-S3     dir          Tang Console 60K        senal SPI
+//   ----------   ----------   ---------------------   ----------------------
+//   GPIO38       S3 -> FPGA   J10 p20  (U20, GCLKT)   SCLK
+//   GPIO40       S3 -> FPGA   J10 p16  (N17)          MOSI  (spi_dat)
+//   GPIO42       S3 -> FPGA   J10 p22  (Y21)          CS#   (spi_csn)
+//   GPIO39       FPGA -> S3   J10 p14  (W21)          MISO  (spi_dir)
+//   GPIO41       FPGA -> S3   J10 p18  (N13)          IRQ#  (spi_irqn)
+//   GPIO2        -            -                       libre (sobra uno)
+//   GND          -            J10 p12                 masa comun
+//
+// Las direcciones COINCIDEN con las que ya tiene declarado el .cst del
+// MSXimus: N17 es entrada con pull-up, W21 salida con drive 8, N13 salida.
+// Y U20 es GCLKT_8, entrada de reloj global: justo lo que quiere spi_sclk,
+// que en mcu_spi_new clockea biestables directamente.
+//
+// ⚠️ EL C6 TIENE QUE SALIR DEL J10: hoy ocupa p14/p16/p18.
+// ⚠️ NADA DE 5V entre las dos placas, solo masa. Cada una con su USB-C.
+//
+// EL BUS SPI TIENE QUE SER EL SPI3_HOST: el SPI2 lo tiene la pantalla.
+// Modo 1 (CPOL=0, CPHA=1) y 13,33 MHz, que es a lo que corre el enlace en el
+// diseno del FPGA.
+#define S3_SPI_SCLK   38      // -> J10 p20
+#define S3_SPI_MOSI   40      // -> J10 p16
+#define S3_SPI_CS     42      // -> J10 p22
+#define S3_SPI_MISO   39      // <- J10 p14
+#define S3_SPI_IRQ    41      // <- J10 p18 (entrada, activo BAJO)
+#define S3_SPI_HZ     13333333
+#define S3_SPI_MODE   1
+
+// ---------------------------------------------------------------------------
 // REPARTO DE LAS UARTs - hacen falta 3 TX y solo hay 3 UARTs con la 0 ocupada
 // ---------------------------------------------------------------------------
 // El truco es la matriz GPIO del ESP32: cualquier UART puede ir a cualquier pin.
