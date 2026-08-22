@@ -471,28 +471,28 @@ void setUartSpeed(){
   Serial.flush();
   switch (stDeviceConfiguration.ucBaudRate) {
     case BR9600:
-      Serial.begin(9600);
+      MSX_LINK_BEGIN(9600);
       break;
     case BR19200:
-      Serial.begin(19200);
+      MSX_LINK_BEGIN(19200);
       break;
     case BR57600:
-      Serial.begin(57600);
+      MSX_LINK_BEGIN(57600);
       break;
     case BR115200:
-      Serial.begin(115200);
+      MSX_LINK_BEGIN(115200);
       break;
     case BR230400:
-      Serial.begin(230400);
+      MSX_LINK_BEGIN(230400);
       break;
     case BR460800:
-      Serial.begin(460800);
+      MSX_LINK_BEGIN(460800);
       break;
     case BR921600:
-      Serial.begin(921600);
+      MSX_LINK_BEGIN(921600);
       break;
     case BR859372:
-      Serial.begin(859372);
+      MSX_LINK_BEGIN(859372);
       break;
   }
 }
@@ -514,6 +514,9 @@ void setup() {
   // pantallita y la Pico Zero con el teclado/joystick USB. Los pines y el
   // selector de placa viven en BoardS3.h.
 #ifdef BOARD_SCREEN_S3
+  // Pulldown a proposito: SIN CABLE tiene que leerse "Normal", no destellos en
+  // frio. Es la misma decision que ya se tomo en el C6 (_156).
+  pinMode(S3_FPGA_TURBO, INPUT_PULLDOWN);
   screenSetup();                // pantalla 320x170: arranque BASIC -> MSX-DOS (ScreenS3)
 #endif
 #ifdef BOARD_SCREEN_C6
@@ -3928,6 +3931,20 @@ void loop() {
   // el enlace UNAPI con el MSX, que es lo prioritario.
 #ifdef BOARD_SCREEN_S3
   screenTick();                 // anima el arranque y refresca la consola MSX-DOS
+  // Indicador de TURBO. El FPGA saca un nivel por su pin de turbo; aqui se
+  // sondea cada 400 ms, que es de sobra para un indicador y no le quita
+  // tiempo al enlace UNAPI. En el C6 esto lo hace displayTask() con su propio
+  // pin (GPIO3): OJO, ese numero NO vale en la S3, por eso sale de BoardS3.h.
+  {
+    static uint32_t t_turbo = 0;
+    static int8_t   last_turbo = -1;
+    uint32_t now_ms = millis();
+    if (now_ms - t_turbo >= 400) {
+      t_turbo = now_ms;
+      int8_t turbo = digitalRead(S3_FPGA_TURBO) ? 1 : 0;
+      if (turbo != last_turbo) { last_turbo = turbo; screenSetTurbo(turbo != 0); }
+    }
+  }
 #endif
 #ifdef BOARD_SCREEN_C6
   displayTask();                // refresca la pantalla del C6 (1/s)

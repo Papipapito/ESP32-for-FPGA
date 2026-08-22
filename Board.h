@@ -50,4 +50,21 @@
   // Sin BOARD_HAS_USB_HOST a proposito: el C6 no puede ser host USB.
 #endif
 
+// --------------------------------------------------------------------------
+//  EL ENLACE CON EL MSX (UART0 = "Serial")
+// --------------------------------------------------------------------------
+//  Todo el codigo UNAPI habla por "Serial". En el C6 eso ya sale por el cable
+//  al FPGA, pero EN LA S3 EL UART0 VA AL CH340 DEL USB-C: sin remapear, el
+//  enlace con el MSX se iria por el puerto de depuracion y no habria ni un
+//  sintoma que apuntara al sitio.
+//
+//  Se remapea en tiempo de EJECUCION y se sigue flasheando con normalidad: el
+//  bootloader usa 43/44 antes de que corra nuestro codigo. Lo unico que se
+//  pierde es la consola serie, que en esta placa va a la PANTALLA.
+#ifdef BOARD_S3
+  #define MSX_LINK_BEGIN(baud)       Serial.begin((baud), SERIAL_8N1, S3_FPGA_UNAPI_RX, S3_FPGA_UNAPI_TX)
+#else
+  #define MSX_LINK_BEGIN(baud)  Serial.begin(baud)
+#endif
+
 #endif // BOARD_H
