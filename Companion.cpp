@@ -16,7 +16,8 @@ size_t compBuildStatus(uint8_t *dst)
     dst[1] = COMP_HID_STATUS;
     dst[2] = 0;             // relleno: la respuesta llega en estos huecos
     dst[3] = 0;
-    return 4;
+    dst[4] = 0;
+    return 5;
 }
 
 size_t compBuildKey(uint8_t *dst, uint8_t codigo, bool pulsada)
@@ -80,12 +81,18 @@ bool compStatus(Companion *c, uint8_t *version, uint8_t *subversion)
     uint8_t tx[COMP_MAX_FRAME], rx[COMP_MAX_FRAME] = {0};
     size_t n = compBuildStatus(tx);
     c->xfer(tx, rx, n, c->user);
-    // hid.v CMD 0: data_out = 1 en el estado 0 y 0 en el 1. Como el SPI es
-    // full duplex y va un byte por detras, esos valores salen en los huecos
-    // que dejamos al final de la trama.
-    if (version)    *version    = rx[n - 2];
-    if (subversion) *subversion = rx[n - 1];
-    return rx[n - 2] != 0x00 && rx[n - 2] != 0xFF;   // 00/FF = nadie contesta
+    // OJO al byte exacto, que costo caro. hid.v NO carga data_out en el byte
+    // del comando: lo hace en el ESTADO 0, o sea un byte mas tarde. Con el
+    // retraso de un byte del full duplex, la version aterriza en rx[3].
+    //
+    // Es DISTINTO de sdc_bridge y launcher_svc, que si cargan dout en el byte
+    // del comando y por eso responden en rx[2]. Leer rx[2] aqui devolvia
+    // siempre 0 y hacia creer que la FPGA no contestaba (el famoso "SPI v0"),
+    // cuando llevaba contestando desde el primer dia.
+    (void)n;
+    if (version)    *version    = rx[3];
+    if (subversion) *subversion = rx[4];
+    return rx[3] != 0x00 && rx[3] != 0xFF;   // 00/FF = nadie contesta
 }
 
 // ==========================================================================
@@ -222,6 +229,51 @@ bool compLnzKeys(Companion *c, uint8_t *destino16)
     size_t n = compBuildLnzKeys(tx);
     c->xfer(tx, rx, n, c->user);
     for (int i = 0; i < 16; i++) destino16[i] = rx[2 + i];
+    return true;
+}
+
+void compSdRead(Companion *c, uint32_t lba)
+{
+    uint8_t t[COMP_MAX_FRAME];
+    enviar(c, t, compBuildSdRead(t, lba));
+}
+
+bool compSdStatus(Companion *c, uint8_t *ver, bool *busy, bool *hold)
+{
+    if (!c || !c->xfer) return false;
+    uint8_t tx[COMP_MAX_FRAME] = { COMP_TGT_SDC, COMP_SDC_STATUS, 0, 0, 0, 0 };
+    uint8_t rx[COMP_MAX_FRAME] = {0};
+    c->xfer(tx, rx, 6, c->user);
+    // sdc_bridge carga dout EN el byte del comando (a diferencia de hid.v):
+    // rx[2]=VERSION, rx[3]={0,busy}, rx[4]={0,hold}.
+    if (ver)  *ver  = rx[2];
+    if (busy) *busy = (rx[3] & 1) != 0;
+    if (hold) *hold = (rx[4] & 1) != 0;
+    return rx[2] != 0x00 && rx[2] != 0xFF;
+}
+
+bool compSdBusy(Companion *c)
+{
+    if (!c || !c->xfer) return true;
+    uint8_t tx[COMP_MAX_FRAME] = { COMP_TGT_SDC, COMP_SDC_STATUS, 0, 0, 0 };
+    uint8_t rx[COMP_MAX_FRAME] = {0};
+    c->xfer(tx, rx, 5, c->user);
+    // sdc_bridge carga dout EN el byte del comando: rx[2]=VERSION, rx[3]=busy.
+    return (rx[3] & 1) != 0;
+}
+
+bool compSdSector(Companion *c, uint8_t *buf512)
+{
+    if (!c || !c->xfer || !buf512) return false;
+    // 2 de cabecera + 512 de datos. NO se puede trocear: sdc_bridge reinicia
+    // su puntero de lectura en cada trama (rd_ptr <= 0 en `start`), asi que
+    // partirlo en dos devolveria dos veces el principio del sector.
+    static uint8_t tx[514], rx[514];
+    for (int i = 0; i < 514; i++) { tx[i] = 0; rx[i] = 0; }
+    tx[0] = COMP_TGT_SDC;
+    tx[1] = COMP_SDC_DATA;
+    c->xfer(tx, rx, 514, c->user);
+    for (int i = 0; i < 512; i++) buf512[i] = rx[2 + i];
     return true;
 }
 

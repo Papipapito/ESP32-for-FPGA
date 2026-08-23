@@ -148,6 +148,15 @@ bool compLnzKeys  (Companion *c, uint8_t *destino16);
 
 void compSdTake   (Companion *c);      // toma la SD y retiene el Z80
 void compSdRelease(Companion *c);      // suelta: el MSX arranca
+void compSdRead   (Companion *c, uint32_t lba);   // lanza la lectura
+bool compSdBusy   (Companion *c);      // la tarjeta sigue con la lectura
+// Estado completo del puente: version, ocupado y si tenemos el mando. Los
+// tres a la vez, porque el fallo puede estar en cualquiera y mirarlos por
+// separado obliga a suponer los otros dos.
+bool compSdStatus (Companion *c, uint8_t *ver, bool *busy, bool *hold);
+// Vuelca el sector ya leido. 514 bytes en UNA transferencia (el puente
+// reinicia su puntero en cada trama, no se puede trocear).
+bool compSdSector (Companion *c, uint8_t *buf512);
 
 #endif // _COMPANION_H
 

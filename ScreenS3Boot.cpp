@@ -276,6 +276,8 @@ static void basicPrintLine(const char *s)
 #define DOS_R_LNZ1    11
 #define DOS_R_LNZ2    12
 #define DOS_R_LNZ3    13
+#define DOS_R_SD      14
+#define DOS_R_SD2     15
 #define DOS_C_VALUE   6        // las etiquetas ocupan las columnas 0..5
 
 static void dosScreenInit()
@@ -365,6 +367,18 @@ static void dosRender()
                  g_scr.lnzRaw[0], g_scr.lnzRaw[1], g_scr.lnzRaw[2], g_scr.lnzRaw[3],
                  g_scr.lnzRaw[4], g_scr.lnzRaw[5], g_scr.lnzRaw[6], g_scr.lnzRaw[7]);
         cellField(DOS_R_LNZ3, 0, lz, 34, ATTR_DOS);
+
+        snprintf(lz, sizeof(lz), "SD0 %04X %s  ini %02X%02X%02X%02X",
+                 (unsigned)g_scr.sdFirma,
+                 g_scr.sdOk ? "FAT-OK" : "no",
+                 g_scr.sdIni[0], g_scr.sdIni[1], g_scr.sdIni[2], g_scr.sdIni[3]);
+        cellField(DOS_R_SD, 0, lz, 34, g_scr.sdOk ? ATTR_DOS : ATTR_DOS_DIM);
+
+        snprintf(lz, sizeof(lz), "SDC v%u hold%d b0=%d b1=%d int%u",
+                 (unsigned)g_scr.sdVer, g_scr.sdHold ? 1 : 0,
+                 g_scr.sdBusy0 ? 1 : 0, g_scr.sdBusy1 ? 1 : 0,
+                 (unsigned)g_scr.sdIntentos);
+        cellField(DOS_R_SD2, 0, lz, 34, ATTR_DOS_DIM);
     }
 }
 

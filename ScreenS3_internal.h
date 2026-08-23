@@ -116,6 +116,11 @@ typedef struct {
     uint32_t lnzEnviados;
     uint8_t  lnzFase, lnzHidVer;
     uint8_t  lnzRaw[8];      // los 8 bytes crudos de MISO
+    uint16_t sdFirma;        // bytes 510-511 del sector 0
+    bool     sdOk;
+    uint8_t  sdIni[4];
+    uint8_t  sdVer, sdIntentos;
+    bool     sdBusy0, sdBusy1, sdHold;
     // Cursor de texto, compartido por las dos pantallas.
     uint8_t  curRow, curCol;
 } ScrShared;

@@ -140,6 +140,11 @@ void screenSetLauncher(uint8_t ver, uint16_t perdidos, uint32_t enviados,
                        uint8_t color, bool hold, uint8_t fase, uint8_t hidVer);
 // Los 8 bytes crudos que devolvio la FPGA en la ultima sonda.
 void screenSetLauncherRaw(const uint8_t *rx8);
+// Peldano 2: firma del sector 0 de la SD (55AA en FAT16) y sus 4 primeros bytes.
+void screenSetSd(uint16_t firma, bool ok, const uint8_t *ini4);
+// Estado del puente de SD: version, si tenemos el mando, si la tarjeta estaba
+// ocupada al empezar y si se puso ocupada al pedirle el sector.
+void screenSetSdDiag(uint8_t ver, bool hold, bool busy0, bool busy1, uint8_t intentos);
 
 // Trafico del enlace, en BYTES POR SEGUNDO (ya promediado por quien llama).
 void screenSetTraffic(uint32_t rxBytesPerSec, uint32_t txBytesPerSec);

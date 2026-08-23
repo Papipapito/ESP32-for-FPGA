@@ -25,15 +25,20 @@ static int fallos = 0;
                             printf("\n"); fallos++; } } while(0)
 
 // ---- SPI de mentira: apunta cada transferencia entera -------------------
+// 520: la trama mas larga ya no es una de control, es un SECTOR (2 de
+// cabecera + 512). Con el tamano viejo (COMP_MAX_FRAME) el memcpy se salia del
+// array y el banco corrompia su propia memoria.
+#define BUS_MAX 520
 struct Bus {
-    uint8_t  tramas[16][COMP_MAX_FRAME];
+    uint8_t  tramas[16][BUS_MAX];
     size_t   largos[16];
     int      n;
-    uint8_t  respuesta[COMP_MAX_FRAME];   // lo que "devuelve" la FPGA
+    uint8_t  respuesta[BUS_MAX];          // lo que "devuelve" la FPGA
 };
 static void bus_xfer(const uint8_t *tx, uint8_t *rx, size_t n, void *user)
 {
     Bus *b = (Bus *)user;
+    if (n > BUS_MAX) { printf("  FALLO: trama de %zu bytes, el bus solo tiene %d\n", n, BUS_MAX); return; }
     if (b->n < 16) {
         memcpy(b->tramas[b->n], tx, n);
         b->largos[b->n] = n;
@@ -105,7 +110,10 @@ int main(void)
     printf("== 5. estado: se lee la version que devuelve la FPGA ==\n");
     // CMD 0 pone data_out=1 en el estado 0 y 0 en el 1; con el full duplex
     // eso cae en los dos huecos del final de la trama.
-    bus.respuesta[2] = 0x01; bus.respuesta[3] = 0x00;
+    // hid.v carga data_out en el ESTADO 0, un byte DESPUES del comando: con el
+    // retraso del full duplex la version cae en rx[3], no en rx[2]. Es distinto
+    // de sdc_bridge/launcher_svc, que cargan en el byte del comando (rx[2]).
+    bus.respuesta[3] = 0x01; bus.respuesta[4] = 0x00;
     uint8_t v = 0xEE, sv = 0xEE;
     bool ok = compStatus(&c, &v, &sv);
     CHECK(ok, "compStatus dijo que no contesta nadie");
@@ -199,7 +207,42 @@ int main(void)
         memset(bus.respuesta, 0x00, sizeof(bus.respuesta));
     }
 
-    if (fallos == 0) printf("*** TEST_COMPANION: OK (11 pruebas) ***\n");
+    // -----------------------------------------------------------------
+    printf("== 12. sector: los 512 bytes salen desplazados DOS ==\n");
+    {
+        // El puente devuelve buf_mem[0] durante el byte 2 de la trama, asi que
+        // el dato empieza en rx[2]. Un desplazamiento aqui corrompe el sector
+        // entero sin que nada de error.
+        memset(bus.respuesta, 0x00, sizeof(bus.respuesta));
+        for (int i = 0; i < 40; i++) bus.respuesta[2 + i] = (uint8_t)(0x10 + i);
+        uint8_t sec[512];
+        memset(sec, 0xEE, sizeof(sec));
+        bus.n = 0;
+        CHECK(compSdSector(&c, sec), "compSdSector fallo");
+        // La trama tambien se comprueba: sin esto, cambiar DATOS por LEER
+        // pasaba el banco (el bus de mentira contesta igual sea cual sea el
+        // comando). Un sabotaje que sale no-op es un agujero, no un aprobado.
+        CHECK(bus.n == 1, "%d transferencias, esperaba 1", bus.n);
+        CHECK(bus.largos[0] == 514, "trama de %zu, esperaba 514", bus.largos[0]);
+        CHECK(bus.tramas[0][0] == COMP_TGT_SDC, "destino equivocado");
+        CHECK(bus.tramas[0][1] == COMP_SDC_DATA, "comando equivocado: no es DATOS");
+        int malos = 0;
+        for (int i = 0; i < 40; i++) if (sec[i] != (uint8_t)(0x10 + i)) malos++;
+        CHECK(malos == 0, "%d bytes del sector mal alineados", malos);
+        memset(bus.respuesta, 0x00, sizeof(bus.respuesta));
+    }
+
+    // -----------------------------------------------------------------
+    printf("== 13. ocupado: el bit busy sale en rx[3] ==\n");
+    {
+        memset(bus.respuesta, 0x00, sizeof(bus.respuesta));
+        bus.respuesta[3] = 0x01;
+        CHECK(compSdBusy(&c), "deberia decir que la tarjeta esta ocupada");
+        bus.respuesta[3] = 0x00;
+        CHECK(!compSdBusy(&c), "deberia decir que ya termino");
+    }
+
+    if (fallos == 0) printf("*** TEST_COMPANION: OK (13 pruebas) ***\n");
     else             printf("*** TEST_COMPANION: %d FALLOS ***\n", fallos);
     return fallos ? 1 : 0;
 }

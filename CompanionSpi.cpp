@@ -100,10 +100,40 @@ bool companionSetup()
 //    - colores fijos, no cambian  -> llega el primero y se atasca la FIFO
 //    - PERDIDOS > 0               -> el VDP no traga al ritmo del S3
 // ==========================================================================
-#define LNZ_PELDANO1        1        // poner a 0 cuando pasemos al peldano 2
+// ============================ BISECCION =================================
+// Soltar el mando NO devuelve la vida al MSX, y hold SI pasa de 1 a 0 (medido
+// en placa). O sea que el Z80 sale de reset y aun asi no arranca. Descartados
+// por lectura del RTL: el refresco de la SDRAM (autonomo con el Z80 parado,
+// memory.v:219) y el sd_init pegado (a STANDBY solo se llega por reset).
+//
+// El lanzador hace CUATRO cosas mientras retiene. Con LNZ_TOCAR_VDP a 0 se
+// quitan las tres que tocan el VDP y queda solo retener + leer la SD:
+//   arranca el MSX  -> la culpa es de lo que le hacemos al VDP
+//   sigue colgado   -> la culpa es de la retencion o de la SD
+// Una prueba, media busqueda menos.
+// Idea de Albert: quiza lo que impide arrancar no es parar el Z80, sino que le
+// quitemos la SD. En mi protocolo TOMAR hace LAS DOS COSAS (retener + duenno de
+// la tarjeta), asi que no se pueden pedir por separado -- una conflacion mia al
+// disenarlo. Con LNZ_TOCAR_SD a 0 el lanzador toma y suelta SIN TOCAR NADA:
+//   arranca -> la culpa es de lo que hacemos con la SD (idea de Albert)
+//   cuelga  -> la culpa es del propio corte del Z80 (memory.v sirve en bucle
+//              abierto y una transaccion en vuelo se pierde EN SILENCIO)
+#define LNZ_TOCAR_SD        1        // (0 para bisecar: sin tocar la SD)
+#define LNZ_TOCAR_VDP       1        // (0 para bisecar: sin tocar el VDP)
+// PRUEBA DE CONTROL (idea de Albert, y un fallo de metodo mio: nunca la hice).
+// Con esto a 0 el lanzador NO CORRE EN ABSOLUTO: ni toma el mando, ni toca la
+// SD, ni el VDP. Si el MSX aun asi no arranca, el problema no es nada de lo que
+// llevamos depurando -- es la propia .fs v31i, y todo lo demas era ruido.
+// Construir el lanzador sin verificar antes que la build base arranca sola fue
+// saltarse la linea base.
+#define LNZ_PELDANO1        1        // (0 = prueba de control: lanzador apagado)
 #define LNZ_P1_MS_COLOR     700      // cuanto dura cada color
 #define LNZ_P1_MS_ESPERA  20000      // margen para que la FPGA acabe de cargar
+#if LNZ_TOCAR_VDP
 #define LNZ_P1_MS_TOTAL  300000      // tope de seguridad si nadie pulsa BOOT
+#else
+#define LNZ_P1_MS_TOTAL    8000      // sin colores que mirar, se suelta solo
+#endif
 
 #if LNZ_PELDANO1
 // Colores del MSX bien separados entre si: si sale otro, es que el dato se
@@ -119,6 +149,15 @@ uint8_t  g_p1_version  = 0;      // version que devuelve launcher_svc
 uint16_t g_p1_perdidos = 0;      // bytes que el VDP no ha podido tragar
 uint32_t g_p1_enviados = 0;      // bytes que el S3 ha puesto en el cable
 uint8_t  g_p1_fase     = 0;      // 0 sin empezar, 1 pintando, 2 acabado, 9 sin lanzador
+// Peldano 2: lo que devolvio el sector 0 de la SD
+uint16_t g_p2_firma    = 0;      // bytes 510-511, deben ser 55AA en FAT16
+bool     g_p2_ok       = false;
+uint8_t  g_p2_ini[4]   = {0,0,0,0};
+uint8_t  g_p2_ver      = 0;      // version que devuelve sdc_bridge
+bool     g_p2_busy0    = false;  // la tarjeta ya estaba ocupada al empezar
+bool     g_p2_busy1    = false;  // ...y se puso ocupada al pedirle el sector
+bool     g_p2_hold     = false;  // el puente cree que tenemos el mando
+uint8_t  g_p2_intentos = 0;
 bool     g_p1_reteniendo = false;
 
 const char *lnzPeldano1Nombre() { return s_p1_nombres[g_p1_color]; }
@@ -136,9 +175,26 @@ static void lnzPeldano1()
     // contesta" se veia igual que "no se ha ejecutado". Una sonda que se apaga
     // cuando hay averia no es una sonda.
     g_p1_fase = fase;
+
+    // El estado del puente se sigue mirando DESPUES de soltar. Si al pulsar
+    // BOOT el MSX no arranca, esto dice si es porque hold no se ha limpiado
+    // (el Z80 sigue en reset) o porque se limpio y el cuelgue esta mas alla.
+    // Sin esto habria que adivinar, y adivinar aqui cuesta una campana.
+    {
+        static uint32_t t_sd = 0;
+        if ((int32_t)(millis() - t_sd) >= 0) {
+            bool b = false;
+            compSdStatus(&s_comp, &g_p2_ver, &b, &g_p2_hold);
+            g_p2_busy0 = b;      // en vivo: ahora es "ocupada AHORA"
+            t_sd = millis() + 500;
+        }
+    }
+
     screenSetLauncher(g_p1_version, g_p1_perdidos, g_p1_enviados,
                       s_p1_colores[g_p1_color], g_p1_reteniendo,
                       g_p1_fase, g_companionVersion);
+    screenSetSd(g_p2_firma, g_p2_ok, g_p2_ini);
+    screenSetSdDiag(g_p2_ver, g_p2_hold, g_p2_busy0, g_p2_busy1, g_p2_intentos);
 
     // Sonda cruda de MISO, una vez por segundo. Se pregunta al destino HID
     // (comando 0 = estado) porque de ese SI sabemos que el lado de ida
@@ -169,7 +225,17 @@ static void lnzPeldano1()
         }
     }
 
-    if (fase == 2) return;
+    if (fase == 2) {
+        // SOLTAR se repite cada segundo. Es idempotente (sdc_bridge solo hace
+        // hold <= 0) y elimina de la lista de sospechosos "la orden no llego".
+        // Si con esto hold sigue a 1, el problema NO es el mensaje.
+        static uint32_t t_rel = 0;
+        if ((int32_t)(millis() - t_rel) >= 0) {
+            compSdRelease(&s_comp);
+            t_rel = millis() + 1000;
+        }
+        return;
+    }
 
     if (fase == 0) {
         // SE REINTENTA. La version anterior preguntaba UNA vez y si no le
@@ -198,7 +264,9 @@ static void lnzPeldano1()
         // que pasa, porque el S3 tarda mas en arrancar que los 3 s del
         // temporizador -- R#7 solo pinta el BORDE y lo que se ve es lo que
         // dejo la BIOS. (23/08: exactamente lo que ocurrio en la placa.)
+#if LNZ_TOCAR_VDP
         compVdpReg(&s_comp, 1, 0x00);
+#endif
 
         // ---- LA PRUEBA QUE DECIDE -------------------------------------
         // 1024 bytes de golpe contra una cola de 256. Lo que se mire despues
@@ -210,16 +278,60 @@ static void lnzPeldano1()
         //                    del VDP, y entonces el fallo esta mas alla
         // Va al puerto 0 (datos de VRAM) porque garabatear VRAM con el Z80 en
         // reset es inofensivo: la BIOS la reinicializa al soltar.
+#if LNZ_TOCAR_VDP
         {
             static uint8_t basura[128];
             for (int i = 0; i < 128; i++) basura[i] = (uint8_t)i;
             for (int k = 0; k < 8; k++)
                 g_p1_enviados += compVdpBulk(&s_comp, 0, basura, sizeof(basura));
         }
+#endif
         {
             bool ll = false;
             compLnzStatus(&s_comp, &g_p1_version, &ll, &g_p1_perdidos);
         }
+
+#if LNZ_TOCAR_SD
+        // ================= PELDANO 2: leer el sector 0 de la SD ==========
+        // El sector 0 de una FAT16 acaba en 55 AA. Es la firma que no puede
+        // salir por casualidad: si aparece en los bytes 510-511, el puente ha
+        // leido la tarjeta DE VERDAD -- no es ruido, ni un buffer a ceros, ni
+        // el eco de lo que mandamos.
+        {
+            // Estado ANTES de pedir nada. sdc_bridge solo lanza la lectura si
+            // (hold && !leyendo && !rbusy): saber cual de los tres falla es la
+            // diferencia entre arreglarlo y probar cosas.
+            compSdStatus(&s_comp, &g_p2_ver, &g_p2_busy0, &g_p2_hold);
+
+            // La tarjeta puede tardar en inicializarse (el sd_reader arranca
+            // con la FPGA y el S3 llega pronto). Se REINTENTA: la leccion del
+            // peldano 1 fue justo esta.
+            static uint8_t sec[512];
+            uint32_t tope_total = millis() + 8000;
+            bool leido = false;
+            while (!leido && (int32_t)(millis() - tope_total) < 0) {
+                compSdRead(&s_comp, 0);
+                // busy justo despues de pedirla: si NO sube, la peticion se
+                // esta ignorando y no es cosa de esperar mas
+                bool b = false;
+                compSdStatus(&s_comp, &g_p2_ver, &b, &g_p2_hold);
+                if (b) g_p2_busy1 = true;
+
+                uint32_t tope = millis() + 1000;
+                while (compSdBusy(&s_comp) && (int32_t)(millis() - tope) < 0) delay(2);
+
+                compSdSector(&s_comp, sec);
+                if (sec[510] == 0x55 && sec[511] == 0xAA) leido = true;
+                else delay(200);
+                g_p2_intentos++;
+            }
+            g_p2_firma = (uint16_t)((sec[510] << 8) | sec[511]);
+            g_p2_ok    = (sec[510] == 0x55 && sec[511] == 0xAA);
+            // los cuatro primeros bytes tambien dicen mucho: un sector de
+            // arranque real empieza por un salto (EB xx 90 o E9)
+            for (int i = 0; i < 4; i++) g_p2_ini[i] = sec[i];
+        }
+#endif // LNZ_TOCAR_SD
 
         t_fin = millis() + LNZ_P1_MS_TOTAL;
         t_sig = millis();
@@ -240,9 +352,11 @@ static void lnzPeldano1()
 
     if ((int32_t)(millis() - t_sig) >= 0) {
         g_p1_color = idx;
+#if LNZ_TOCAR_VDP
         // R#7 = {color de texto, color de FONDO}. Con la pantalla en blanking
         // el fondo ocupa la tele entera.
         compVdpReg(&s_comp, 7, s_p1_colores[idx]);
+#endif
         bool lleno = false;
         compLnzStatus(&s_comp, &g_p1_version, &lleno, &g_p1_perdidos);
         g_p1_enviados += 2;                 // el registro son dos bytes
@@ -275,7 +389,9 @@ void companionTask()
 
     // Mientras el lanzador retiene la maquina, BOOT significa "suelta", no
     // "manda una tecla": si no, la pulsacion haria las dos cosas.
+#if LNZ_PELDANO1
     if (g_p1_reteniendo) { prev = now; return; }
+#endif
 
     if (prev && !now) {                  // flanco de pulsacion
         compKey(&s_comp, 4, true);

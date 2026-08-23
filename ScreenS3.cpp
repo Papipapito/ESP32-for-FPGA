@@ -458,6 +458,20 @@ void screenSetLauncherRaw(const uint8_t *rx8)
     for (int i = 0; i < 8; i++) g_scr.lnzRaw[i] = rx8[i];
 }
 
+void screenSetSd(uint16_t firma, bool ok, const uint8_t *ini4)
+{
+    g_scr.sdFirma = firma;
+    g_scr.sdOk = ok;
+    for (int i = 0; i < 4; i++) g_scr.sdIni[i] = ini4[i];
+}
+
+void screenSetSdDiag(uint8_t ver, bool hold, bool busy0, bool busy1, uint8_t intentos)
+{
+    g_scr.sdVer = ver; g_scr.sdHold = hold;
+    g_scr.sdBusy0 = busy0; g_scr.sdBusy1 = busy1;
+    g_scr.sdIntentos = intentos;
+}
+
 void screenSetTraffic(uint32_t rxBytesPerSec, uint32_t txBytesPerSec)
 {
     g_scr.rxBps = rxBytesPerSec; g_scr.txBps = txBytesPerSec;
