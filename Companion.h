@@ -65,7 +65,27 @@
 #define COMP_HID_MOUSE     2
 #define COMP_HID_JOYSTICK  3
 
-#define COMP_MAX_FRAME  8       // la trama mas larga hoy son 5 bytes
+// comandos del destino OSD = el lanzador pinta por el VDP (launcher_svc.v)
+#define COMP_LNZ_STATUS    0
+#define COMP_LNZ_WRITE     1    // [puerto][dato]        una escritura suelta
+#define COMP_LNZ_BULK      2    // [puerto][d0][d1]...   todo al mismo puerto
+#define COMP_LNZ_KEYS      3    // 16 bytes = vector de teclado USB del FPGA
+
+// comandos del destino SDC = el lanzador lee la SD (sdc_bridge.v)
+#define COMP_SDC_STATUS    0
+#define COMP_SDC_TAKE      1    // toma la SD Y RETIENE el Z80
+#define COMP_SDC_RELEASE   2    // suelta: el MSX arranca
+#define COMP_SDC_READ      3    // [lba0..lba3] little endian
+#define COMP_SDC_DATA      4    // saca los 512 bytes por MISO
+
+// Puertos del VDP = bus_address[2:0] (v9968_cpu_glue.v:98). En el MSX de toda
+// la vida son #98..#9B; aqui solo van los dos bits bajos.
+#define VDP_PORT_VRAM      0    // #98 datos de VRAM
+#define VDP_PORT_REG       1    // #99 registro / direccion
+#define VDP_PORT_PAL       2    // #9A paleta
+#define VDP_PORT_IREG      3    // #9B registro indirecto
+
+#define COMP_MAX_FRAME  24      // la mas larga es LEER TECLAS: 2 + 16 + relleno
 
 // Envia una trama COMPLETA por SPI en modo 1, con CS bajo de principio a fin.
 // rx puede ser NULL si no interesa lo que devuelve la FPGA.
@@ -84,12 +104,40 @@ size_t compBuildMouse   (uint8_t *dst, int8_t dx, int8_t dy, uint8_t botones);
 size_t compBuildJoystick(uint8_t *dst, uint8_t dispositivo, uint8_t bits);
 size_t compBuildStatus  (uint8_t *dst);
 
+// --- lanzador: pintar por el VDP -----------------------------------------
+// Una escritura suelta a un puerto del VDP.
+size_t compBuildVdpWrite(uint8_t *dst, uint8_t puerto, uint8_t dato);
+// Un REGISTRO del VDP son DOS escrituras al puerto #99: primero el dato y
+// luego 0x80|registro. Van en una sola trama de volcado para que no se pueda
+// colar nada por medio y dejar el VDP a medias.
+size_t compBuildVdpReg  (uint8_t *dst, uint8_t registro, uint8_t valor);
+size_t compBuildLnzStatus(uint8_t *dst);
+size_t compBuildLnzKeys  (uint8_t *dst);
+
+// --- lanzador: gobierno de la SD y del Z80 --------------------------------
+size_t compBuildSdTake   (uint8_t *dst);
+size_t compBuildSdRelease(uint8_t *dst);
+size_t compBuildSdRead   (uint8_t *dst, uint32_t lba);
+
 // --- envio ----------------------------------------------------------------
 void compKey     (Companion *c, uint8_t codigo, bool pulsada);
 void compMouse   (Companion *c, int8_t dx, int8_t dy, uint8_t botones);
 void compJoystick(Companion *c, uint8_t dispositivo, uint8_t bits);
 // Devuelve true y rellena version/subversion si la FPGA contesta.
 bool compStatus  (Companion *c, uint8_t *version, uint8_t *subversion);
+
+// --- lanzador: envio ------------------------------------------------------
+void compVdpWrite (Companion *c, uint8_t puerto, uint8_t dato);
+void compVdpReg   (Companion *c, uint8_t registro, uint8_t valor);
+// version del launcher_svc + si la cola esta llena + bytes PERDIDOS. Los
+// perdidos importan: el SPI no se puede frenar, asi que si el VDP no traga al
+// ritmo del S3 se pierden bytes y este contador es la unica forma de saberlo.
+bool compLnzStatus(Companion *c, uint8_t *version, bool *lleno, uint16_t *perdidos);
+// 16 bytes indexados por USAGE HID (NO por celda de matriz: ver compBuildKey).
+bool compLnzKeys  (Companion *c, uint8_t *destino16);
+
+void compSdTake   (Companion *c);      // toma la SD y retiene el Z80
+void compSdRelease(Companion *c);      // suelta: el MSX arranca
 
 #endif // _COMPANION_H
 
