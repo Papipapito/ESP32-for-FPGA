@@ -21,7 +21,9 @@
 
 #include <Arduino.h>
 #include <driver/spi_master.h>
+#include <driver/gpio.h>
 #include "Companion.h"
+#include "ScreenS3.h"      // para enseñar el diagnostico del lanzador
 
 static spi_device_handle_t s_spi = nullptr;
 static Companion           s_comp;
@@ -100,7 +102,8 @@ bool companionSetup()
 // ==========================================================================
 #define LNZ_PELDANO1        1        // poner a 0 cuando pasemos al peldano 2
 #define LNZ_P1_MS_COLOR     700      // cuanto dura cada color
-#define LNZ_P1_MS_TOTAL   12000      // y cuando se suelta para que arranque el MSX
+#define LNZ_P1_MS_ESPERA  20000      // margen para que la FPGA acabe de cargar
+#define LNZ_P1_MS_TOTAL  300000      // tope de seguridad si nadie pulsa BOOT
 
 #if LNZ_PELDANO1
 // Colores del MSX bien separados entre si: si sale otro, es que el dato se
@@ -114,6 +117,8 @@ static const char   *s_p1_nombres[] = { "rojo", "verde", "azul",
 uint8_t  g_p1_color    = 0;      // indice del color que se acaba de mandar
 uint8_t  g_p1_version  = 0;      // version que devuelve launcher_svc
 uint16_t g_p1_perdidos = 0;      // bytes que el VDP no ha podido tragar
+uint32_t g_p1_enviados = 0;      // bytes que el S3 ha puesto en el cable
+uint8_t  g_p1_fase     = 0;      // 0 sin empezar, 1 pintando, 2 acabado, 9 sin lanzador
 bool     g_p1_reteniendo = false;
 
 const char *lnzPeldano1Nombre() { return s_p1_nombres[g_p1_color]; }
@@ -125,25 +130,108 @@ static void lnzPeldano1()
     static uint32_t t_fin  = 0;
     static uint8_t  idx    = 0;
 
+    // EL DIAGNOSTICO VA LO PRIMERO Y SIEMPRE. En la version anterior estaba al
+    // final, y el camino de "el lanzador no contesta" hacia return antes de
+    // llegar: el fallo mas importante era justo el que NO se pintaba, y "no
+    // contesta" se veia igual que "no se ha ejecutado". Una sonda que se apaga
+    // cuando hay averia no es una sonda.
+    g_p1_fase = fase;
+    screenSetLauncher(g_p1_version, g_p1_perdidos, g_p1_enviados,
+                      s_p1_colores[g_p1_color], g_p1_reteniendo,
+                      g_p1_fase, g_companionVersion);
+
+    // Sonda cruda de MISO, una vez por segundo. Se pregunta al destino HID
+    // (comando 0 = estado) porque de ese SI sabemos que el lado de ida
+    // funciona: el boton BOOT mete una tecla en el MSX. Si aun asi no vuelve
+    // nada, el problema esta en la vuelta y en nada mas.
+    {
+        static uint32_t t_probe = 0;
+        if ((int32_t)(millis() - t_probe) >= 0) {
+            uint8_t rx8[8];
+            compProbe(&s_comp, COMP_TGT_HID, COMP_HID_STATUS, rx8);
+
+            // ---- LA PRUEBA DEL PULL-UP -------------------------------
+            // mcu_spi_new.v deja spi_io_dout a 0 con CS en reposo. Con un
+            // pull-up puesto en nuestro lado:
+            //   lee 0 -> la FPGA CONDUCE el pin: la salida vive y el dato es 0
+            //   lee 1 -> la FPGA NO conduce: el fallo es el pin/banco/rutado
+            // Distingue "responde cero" de "no responde", que mirando el bus
+            // se ven exactamente igual. Lo mismo con IRQ#, la otra salida de
+            // la FPGA en ese banco, que tampoco se ha ejercitado jamas.
+            gpio_pullup_en((gpio_num_t)S3_SPI_MISO);
+            gpio_pullup_en((gpio_num_t)S3_SPI_IRQ);
+            delayMicroseconds(50);
+            rx8[6] = (uint8_t)(0xE0 | (gpio_get_level((gpio_num_t)S3_SPI_MISO) ? 1 : 0));
+            rx8[7] = (uint8_t)(0xF0 | (gpio_get_level((gpio_num_t)S3_SPI_IRQ)  ? 1 : 0));
+
+            screenSetLauncherRaw(rx8);
+            t_probe = millis() + 1000;
+        }
+    }
+
     if (fase == 2) return;
 
     if (fase == 0) {
-        // Se pregunta ANTES de tomar el mando: si el bitstream no lleva el
-        // lanzador, mejor no retener un Z80 que luego no sabremos soltar.
+        // SE REINTENTA. La version anterior preguntaba UNA vez y si no le
+        // contestaban se rendia para siempre -- y en arranque frio no contesta
+        // nadie todavia: la FPGA esta cargando 20 MB de bitstream desde la
+        // flash mientras el S3 ya lleva rato despierto. De ahi que funcionara
+        // al reiniciar solo el S3 (la FPGA llevaba rato lista) y nunca en frio.
+        // Un handshake contra algo que arranca mas lento SIEMPRE se reintenta.
+        static uint32_t t_limite = 0;
+        if (t_limite == 0) t_limite = millis() + LNZ_P1_MS_ESPERA;
+
         bool lleno = false;
         if (!compLnzStatus(&s_comp, &g_p1_version, &lleno, &g_p1_perdidos)) {
             g_p1_version = 0;
-            fase = 2;                       // sin lanzador: MSX normal
+            if ((int32_t)(millis() - t_limite) < 0) return;   // seguir esperando
+            fase = 2;                       // se acabo el margen: MSX normal
+            g_p1_fase = 9;                  // ...y que se VEA que fue por esto
             return;
         }
         compSdTake(&s_comp);                // retiene el Z80
         g_p1_reteniendo = true;
+
+        // APAGAR LA PANTALLA (R#1 bit6 = 0). Sin esto la prueba no vale: el
+        // color de fondo solo ocupa la tele ENTERA cuando el VDP esta en
+        // blanking. Si la BIOS ya arranco y habilito la pantalla -- que es lo
+        // que pasa, porque el S3 tarda mas en arrancar que los 3 s del
+        // temporizador -- R#7 solo pinta el BORDE y lo que se ve es lo que
+        // dejo la BIOS. (23/08: exactamente lo que ocurrio en la placa.)
+        compVdpReg(&s_comp, 1, 0x00);
+
+        // ---- LA PRUEBA QUE DECIDE -------------------------------------
+        // 1024 bytes de golpe contra una cola de 256. Lo que se mire despues
+        // no es el color de la tele -- que puede enganar de mil formas -- sino
+        // PERDIDOS:
+        //   ~768 perdidos -> la cola NO se vacia: el lado del VDP esta parado
+        //                    (owns que no llega, o un READY que nunca viene)
+        //   ~0 perdidos   -> la cola SI se vacia: las escrituras LLEGAN al bus
+        //                    del VDP, y entonces el fallo esta mas alla
+        // Va al puerto 0 (datos de VRAM) porque garabatear VRAM con el Z80 en
+        // reset es inofensivo: la BIOS la reinicializa al soltar.
+        {
+            static uint8_t basura[128];
+            for (int i = 0; i < 128; i++) basura[i] = (uint8_t)i;
+            for (int k = 0; k < 8; k++)
+                g_p1_enviados += compVdpBulk(&s_comp, 0, basura, sizeof(basura));
+        }
+        {
+            bool ll = false;
+            compLnzStatus(&s_comp, &g_p1_version, &ll, &g_p1_perdidos);
+        }
+
         t_fin = millis() + LNZ_P1_MS_TOTAL;
         t_sig = millis();
         fase  = 1;
     }
 
-    if ((int32_t)(millis() - t_fin) >= 0) {
+    // Se suelta al pulsar BOOT (idea de Albert): asi el lanzador se queda
+    // quieto y se puede mirar con calma, que es justo lo que hara el menu de
+    // verdad -- esperar al usuario. El tope por tiempo se queda de red de
+    // seguridad por si el boton no responde.
+    bool boot_ahora = (digitalRead(S3_BTN_BOOT) == LOW);
+    if (boot_ahora || (int32_t)(millis() - t_fin) >= 0) {
         compSdRelease(&s_comp);             // suelta: el MSX arranca
         g_p1_reteniendo = false;
         fase = 2;
@@ -151,25 +239,30 @@ static void lnzPeldano1()
     }
 
     if ((int32_t)(millis() - t_sig) >= 0) {
-        idx = (uint8_t)((idx + 1) % (sizeof(s_p1_colores) / sizeof(s_p1_colores[0])));
         g_p1_color = idx;
         // R#7 = {color de texto, color de FONDO}. Con la pantalla en blanking
         // el fondo ocupa la tele entera.
         compVdpReg(&s_comp, 7, s_p1_colores[idx]);
         bool lleno = false;
         compLnzStatus(&s_comp, &g_p1_version, &lleno, &g_p1_perdidos);
+        g_p1_enviados += 2;                 // el registro son dos bytes
         t_sig = millis() + LNZ_P1_MS_COLOR;
+        idx = (uint8_t)((idx + 1) % (sizeof(s_p1_colores) / sizeof(s_p1_colores[0])));
     }
+
 }
 #endif // LNZ_PELDANO1
 
 void companionTask()
 {
-    if (!s_spi) return;
-
+    // El diagnostico va ANTES del corte por SPI muerto: si spiXfer no esta,
+    // sus llamadas son no-op inofensivas, pero la pantalla sigue contando lo
+    // que pasa. Al reves nos quedariamos otra vez sin saber nada.
 #if LNZ_PELDANO1
     lnzPeldano1();
 #endif
+
+    if (!s_spi) return;
 
     // Prueba manual: BOOT manda una 'A'. El vector keyboard[] del FPGA se
     // indexa por USAGE HID (usb_keyboard_msx.vhd:95 "standard HID codes"), NO
@@ -179,6 +272,10 @@ void companionTask()
     static uint32_t t_up = 0;
     static bool     pend = false;
     bool now = digitalRead(S3_BTN_BOOT);
+
+    // Mientras el lanzador retiene la maquina, BOOT significa "suelta", no
+    // "manda una tecla": si no, la pulsacion haria las dos cosas.
+    if (g_p1_reteniendo) { prev = now; return; }
 
     if (prev && !now) {                  // flanco de pulsacion
         compKey(&s_comp, 4, true);

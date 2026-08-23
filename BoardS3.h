@@ -157,7 +157,18 @@
 #define S3_SPI_MISO    6      // <- J10 p21 (Y22)
 #define S3_SPI_CS      7      // -> J10 p22 (Y21)
 #define S3_SPI_IRQ    15      // <- J10 p23 (AB22), activo BAJO
-#define S3_SPI_HZ     13333333
+// 23/08: BAJADO de 13.333.333 a 4 MHz por un fallo de LECTURA. La ida
+// (SCLK/MOSI/CS#) nunca ha fallado -- el boton BOOT mete su tecla sin un
+// error --, pero el MISO devolvia valores inestables: 01, luego 02 (el
+// mismo dato corrido UN BIT) y algun 42 de transicion. Eso no es un
+// desfase de bytes, es muestreo a destiempo.
+//
+// Por que solo la vuelta: el MISO es el unico que viaja FPGA->S3, y el
+// maestro lo muestrea medio ciclo despues de que el esclavo lo ponga. A
+// 13,33 MHz eso son 37 ns para salir del flop (con el reloj entrando por
+// una ruta LOCAL_CLOCK), cruzar el cable suelto y estar quieto. A 4 MHz
+// son 125 ns.
+#define S3_SPI_HZ      4000000
 #define S3_SPI_MODE   1
 
 // ---------------------------------------------------------------------------

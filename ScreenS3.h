@@ -133,6 +133,14 @@ void screenSetUsb(bool kbd, bool pad);
 // Estado del turbo del core FPGA.
 void screenSetTurbo(bool on);
 
+// Diagnostico del lanzador: version que devuelve launcher_svc (0 = no
+// contesta), bytes que el VDP no ha podido tragar, bytes enviados, color
+// en curso y si estamos reteniendo el Z80.
+void screenSetLauncher(uint8_t ver, uint16_t perdidos, uint32_t enviados,
+                       uint8_t color, bool hold, uint8_t fase, uint8_t hidVer);
+// Los 8 bytes crudos que devolvio la FPGA en la ultima sonda.
+void screenSetLauncherRaw(const uint8_t *rx8);
+
 // Trafico del enlace, en BYTES POR SEGUNDO (ya promediado por quien llama).
 void screenSetTraffic(uint32_t rxBytesPerSec, uint32_t txBytesPerSec);
 

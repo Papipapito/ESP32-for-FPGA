@@ -443,6 +443,21 @@ void screenSetUsb(bool kbd, bool pad)
 
 void screenSetTurbo(bool on) { g_scr.turbo = on; }
 
+void screenSetLauncher(uint8_t ver, uint16_t perdidos, uint32_t enviados,
+                       uint8_t color, bool hold, uint8_t fase, uint8_t hidVer)
+{
+    g_scr.lnzOn = true;
+    g_scr.lnzVer = ver;   g_scr.lnzPerdidos = perdidos;
+    g_scr.lnzEnviados = enviados;
+    g_scr.lnzColor = color; g_scr.lnzHold = hold;
+    g_scr.lnzFase = fase; g_scr.lnzHidVer = hidVer;
+}
+
+void screenSetLauncherRaw(const uint8_t *rx8)
+{
+    for (int i = 0; i < 8; i++) g_scr.lnzRaw[i] = rx8[i];
+}
+
 void screenSetTraffic(uint32_t rxBytesPerSec, uint32_t txBytesPerSec)
 {
     g_scr.rxBps = rxBytesPerSec; g_scr.txBps = txBytesPerSec;

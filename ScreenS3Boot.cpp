@@ -272,6 +272,10 @@ static void basicPrintLine(const char *s)
 #define DOS_R_USB     7
 #define DOS_R_SEP2    8
 #define DOS_R_PROMPT  9
+// Filas 10..19 estaban libres: ahi va el diagnostico del lanzador.
+#define DOS_R_LNZ1    11
+#define DOS_R_LNZ2    12
+#define DOS_R_LNZ3    13
 #define DOS_C_VALUE   6        // las etiquetas ocupan las columnas 0..5
 
 static void dosScreenInit()
@@ -323,6 +327,45 @@ static void dosRender()
 
     fmtClock(t, sizeof(t));
     cellFieldRight(DOS_R_PROMPT, t, 8, ATTR_DOS_DIM);
+
+    // ---- diagnostico del lanzador -------------------------------------
+    // Solo aparece cuando el lanzador ha corrido. PERDIDOS es el numero que
+    // decide: si crece, la cola del VDP no se vacia; si se queda en cero tras
+    // un chorro grande, las escrituras SI estan llegando al bus.
+    if (g_scr.lnzOn) {
+        // SPI = destino HID (lo que ya sabiamos que funcionaba).
+        // LNZ = destino OSD. Separarlos dice si el enlace esta muerto entero
+        // o si es solo el lanzador el que no contesta.
+        // OJO: buffer propio. El `t` de esta funcion es de 16 bytes y cortaba
+        // estas lineas a 15 caracteres. "SPI v0   LNZ NO CONTESTA   f9" se
+        // quedaba en "SPI v0   LNZ NO", que es lo que se estuvo leyendo un
+        // buen rato creyendo que era el mensaje entero.
+        char lz[48];
+        snprintf(lz, sizeof(lz), "SPI v%u  LNZ %s  f%u",
+                 (unsigned)g_scr.lnzHidVer,
+                 g_scr.lnzVer ? (g_scr.lnzHold ? "RETIENE" : "suelto")
+                              : "NO-CONTESTA",
+                 (unsigned)g_scr.lnzFase);
+        cellField(DOS_R_LNZ1, 0, lz, 34, g_scr.lnzVer ? ATTR_DOS : ATTR_DOS_DIM);
+        snprintf(lz, sizeof(lz), "c%u", (unsigned)g_scr.lnzColor);
+        cellFieldRight(DOS_R_LNZ1, lz, 5, ATTR_DOS_DIM);
+
+        snprintf(lz, sizeof(lz), "ENV %lu  PERD %u",
+                 (unsigned long)g_scr.lnzEnviados, (unsigned)g_scr.lnzPerdidos);
+        cellField(DOS_R_LNZ2, 0, lz, 30,
+                  g_scr.lnzPerdidos ? ATTR_DOS : ATTR_DOS_DIM);
+
+        // Los 8 bytes crudos de MISO. Todo 00 o todo FF = no vuelve nada (cable
+        // o pin). Un 01 en algun sitio = si vuelve, y ese indice dice el desfase.
+        // Buffer PROPIO: el `t` de esta funcion es de 16 bytes y cortaba la
+        // linea en "MISO 00 00 00 0" -- 15 caracteres justos. Estuvimos un
+        // buen rato razonando sobre los cuatro primeros bytes creyendo que
+        // eran los ocho.
+        snprintf(lz, sizeof(lz), "MISO %02X %02X %02X %02X %02X %02X %02X %02X",
+                 g_scr.lnzRaw[0], g_scr.lnzRaw[1], g_scr.lnzRaw[2], g_scr.lnzRaw[3],
+                 g_scr.lnzRaw[4], g_scr.lnzRaw[5], g_scr.lnzRaw[6], g_scr.lnzRaw[7]);
+        cellField(DOS_R_LNZ3, 0, lz, 34, ATTR_DOS);
+    }
 }
 
 // ===========================================================================

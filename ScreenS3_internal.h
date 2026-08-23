@@ -107,6 +107,15 @@ typedef struct {
     bool     clockPushed;
     int32_t  clockBaseSec;
     uint32_t clockBaseMs;
+    // Diagnostico del lanzador (peldano de bring-up). lnzVer=0 significa
+    // que el destino OSD de la FPGA no contesta.
+    bool     lnzOn;
+    uint8_t  lnzVer, lnzColor;
+    bool     lnzHold;
+    uint16_t lnzPerdidos;
+    uint32_t lnzEnviados;
+    uint8_t  lnzFase, lnzHidVer;
+    uint8_t  lnzRaw[8];      // los 8 bytes crudos de MISO
     // Cursor de texto, compartido por las dos pantallas.
     uint8_t  curRow, curCol;
 } ScrShared;

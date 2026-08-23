@@ -126,9 +126,19 @@ void compJoystick(Companion *c, uint8_t dispositivo, uint8_t bits);
 // Devuelve true y rellena version/subversion si la FPGA contesta.
 bool compStatus  (Companion *c, uint8_t *version, uint8_t *subversion);
 
+// SONDA CRUDA: manda [destino][comando] + 6 de relleno y devuelve los 8 bytes
+// que llegan por MISO, SIN interpretarlos. Es la unica forma de saber DONDE
+// aterriza la respuesta en vez de suponerlo: el desfase del full duplex se
+// mide, no se deduce. (Un banco con bus simulado no lo caza: la respuesta la
+// coloca el propio simulador donde el codigo cree que va.)
+void compProbe(Companion *c, uint8_t destino, uint8_t comando, uint8_t *rx8);
+
 // --- lanzador: envio ------------------------------------------------------
 void compVdpWrite (Companion *c, uint8_t puerto, uint8_t dato);
 void compVdpReg   (Companion *c, uint8_t registro, uint8_t valor);
+// n bytes seguidos al MISMO puerto, troceado en tramas. Devuelve cuantos
+// bytes se han llegado a poner en el cable.
+size_t compVdpBulk(Companion *c, uint8_t puerto, const uint8_t *datos, size_t n);
 // version del launcher_svc + si la cola esta llena + bytes PERDIDOS. Los
 // perdidos importan: el SPI no se puede frenar, asi que si el VDP no traga al
 // ritmo del S3 se pierden bytes y este contador es la unica forma de saberlo.

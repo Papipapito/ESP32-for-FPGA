@@ -173,6 +173,33 @@ void compVdpReg(Companion *c, uint8_t registro, uint8_t valor)
     enviar(c, t, compBuildVdpReg(t, registro, valor));
 }
 
+void compProbe(Companion *c, uint8_t destino, uint8_t comando, uint8_t *rx8)
+{
+    if (!c || !c->xfer || !rx8) return;
+    uint8_t tx[8] = { destino, comando, 0, 0, 0, 0, 0, 0 };
+    for (int i = 0; i < 8; i++) rx8[i] = 0;
+    c->xfer(tx, rx8, 8, c->user);
+}
+
+size_t compVdpBulk(Companion *c, uint8_t puerto, const uint8_t *datos, size_t n)
+{
+    if (!c || !c->xfer || !datos) return 0;
+    // Trozos de 48: cada trama son 3 de cabecera + los datos, y asi se queda
+    // holgadamente por debajo del maximo del driver SPI sin DMA.
+    uint8_t t[51];
+    size_t puestos = 0;
+    while (puestos < n) {
+        size_t k = n - puestos; if (k > 48) k = 48;
+        t[0] = COMP_TGT_OSD;
+        t[1] = COMP_LNZ_BULK;
+        t[2] = (uint8_t)(puerto & 0x03);
+        for (size_t i = 0; i < k; i++) t[3 + i] = datos[puestos + i];
+        c->xfer(t, NULL, k + 3, c->user);
+        puestos += k;
+    }
+    return puestos;
+}
+
 bool compLnzStatus(Companion *c, uint8_t *version, bool *lleno, uint16_t *perdidos)
 {
     if (!c || !c->xfer) return false;
