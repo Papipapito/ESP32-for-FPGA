@@ -120,6 +120,14 @@ typedef struct {
     bool     sdOk;
     uint8_t  sdIni[4];
     uint8_t  sdVer, sdIntentos;
+    bool     fsOk;           // FatFs montado
+    uint8_t  fsErr;          // FRESULT del ultimo fallo
+    int      fsN;            // entradas listadas en la raiz
+    char     fsPrim[3][20];  // las tres primeras, para verlas
+    uint32_t fsLba;          // sector donde empieza el volumen
+    uint8_t  fsTipo, fsNParts;
+    uint8_t  fsIni[4];       // 4 primeros bytes que leyo el montaje
+    uint32_t pmAntes, pmDespues;   // 32 muestras de `ocupado` a 1 ms
     bool     sdBusy0, sdBusy1, sdHold;
     // Cursor de texto, compartido por las dos pantallas.
     uint8_t  curRow, curCol;

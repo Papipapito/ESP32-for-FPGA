@@ -238,6 +238,8 @@ void compSdRead(Companion *c, uint32_t lba)
     enviar(c, t, compBuildSdRead(t, lba));
 }
 
+uint8_t g_ultimo_sdstat = 0;
+
 bool compSdStatus(Companion *c, uint8_t *ver, bool *busy, bool *hold)
 {
     if (!c || !c->xfer) return false;
@@ -249,6 +251,13 @@ bool compSdStatus(Companion *c, uint8_t *ver, bool *busy, bool *hold)
     if (ver)  *ver  = rx[2];
     if (busy) *busy = (rx[3] & 1) != 0;
     if (hold) *hold = (rx[4] & 1) != 0;
+    // rx[5] = {3'b0, sd_init, card_stat}: DONDE esta la maquina de la tarjeta.
+    // Se anadio al RTL en la v31i y no se habia leido nunca; es justo el dato
+    // que distingue "el lector esta aparcado en STANDBY" de "se quedo a medias
+    // de una lectura", que se ven igual desde fuera (ocupado = 1 en ambos).
+    // card_stat se trunca de 5 a 4 bits en sd_reader, asi que IDLING(17)->1 y
+    // STANDBY(18)->2. Sigue valiendo para distinguirlos de READING(13/14).
+    g_ultimo_sdstat = rx[5];
     return rx[2] != 0x00 && rx[2] != 0xFF;
 }
 

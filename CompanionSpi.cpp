@@ -24,6 +24,7 @@
 #include <driver/gpio.h>
 #include "Companion.h"
 #include "ScreenS3.h"      // para enseñar el diagnostico del lanzador
+#include "LauncherFs.h"    // peldano 3: FatFs sobre el puente de sectores
 
 static spi_device_handle_t s_spi = nullptr;
 static Companion           s_comp;
@@ -158,6 +159,16 @@ bool     g_p2_busy0    = false;  // la tarjeta ya estaba ocupada al empezar
 bool     g_p2_busy1    = false;  // ...y se puso ocupada al pedirle el sector
 bool     g_p2_hold     = false;  // el puente cree que tenemos el mando
 uint8_t  g_p2_intentos = 0;
+// MEDIDA del protocolo de lectura: 32 muestras de `ocupado` a 1 ms, antes de
+// pedir nada y justo despues de pedir el sector 0. Se llega aqui despues de
+// TRES intentos de arreglar la lectura razonando sobre tiempos sin medirlos.
+uint32_t g_pm_antes = 0;
+uint32_t g_pm_despues = 0;
+// Peldano 3: FatFs
+bool     g_p3_montado  = false;
+uint8_t  g_p3_err      = 0;
+int      g_p3_n        = 0;
+char     g_p3_prim[3][20] = {{0},{0},{0}};
 bool     g_p1_reteniendo = false;
 
 const char *lnzPeldano1Nombre() { return s_p1_nombres[g_p1_color]; }
@@ -195,6 +206,9 @@ static void lnzPeldano1()
                       g_p1_fase, g_companionVersion);
     screenSetSd(g_p2_firma, g_p2_ok, g_p2_ini);
     screenSetSdDiag(g_p2_ver, g_p2_hold, g_p2_busy0, g_p2_busy1, g_p2_intentos);
+    screenSetFs(g_p3_montado, g_p3_err, g_p3_n, g_p3_prim,
+                lfsLbaBase(), lfsTipoPart(), lfsNumParts(), lfsPrimeros4(),
+                g_pm_antes, g_pm_despues);
 
     // Sonda cruda de MISO, una vez por segundo. Se pregunta al destino HID
     // (comando 0 = estado) porque de ese SI sabemos que el lado de ida
@@ -310,19 +324,11 @@ static void lnzPeldano1()
             uint32_t tope_total = millis() + 8000;
             bool leido = false;
             while (!leido && (int32_t)(millis() - tope_total) < 0) {
-                compSdRead(&s_comp, 0);
-                // busy justo despues de pedirla: si NO sube, la peticion se
-                // esta ignorando y no es cosa de esperar mas
-                bool b = false;
-                compSdStatus(&s_comp, &g_p2_ver, &b, &g_p2_hold);
-                if (b) g_p2_busy1 = true;
-
-                uint32_t tope = millis() + 1000;
-                while (compSdBusy(&s_comp) && (int32_t)(millis() - tope) < 0) delay(2);
-
-                compSdSector(&s_comp, sec);
-                if (sec[510] == 0x55 && sec[511] == 0xAA) leido = true;
-                else delay(200);
+                if (compSdLeerSector(&s_comp, 0, sec)) {
+                    g_p2_busy1 = true;
+                    if (sec[510] == 0x55 && sec[511] == 0xAA) leido = true;
+                }
+                if (!leido) delay(200);
                 g_p2_intentos++;
             }
             g_p2_firma = (uint16_t)((sec[510] << 8) | sec[511]);
@@ -330,6 +336,34 @@ static void lnzPeldano1()
             // los cuatro primeros bytes tambien dicen mucho: un sector de
             // arranque real empieza por un salto (EB xx 90 o E9)
             for (int i = 0; i < 4; i++) g_p2_ini[i] = sec[i];
+        }
+
+        // ============ MEDIDA del protocolo de lectura ====================
+        {
+            for (int i = 0; i < 32; i++) {
+                g_pm_antes = (g_pm_antes << 1) | (compSdBusy(&s_comp) ? 1 : 0);
+                delay(1);
+            }
+            compSdRead(&s_comp, 0);
+            for (int i = 0; i < 32; i++) {
+                g_pm_despues = (g_pm_despues << 1) | (compSdBusy(&s_comp) ? 1 : 0);
+                delay(1);
+            }
+        }
+
+        // ============ PELDANO 3: FatFs y listar la raiz =================
+        // Se monta DESPUES de tomar el mando (el puente ignora peticiones de
+        // sector si la SD no es nuestra) y con la tarjeta ya despierta, que es
+        // lo que acaba de demostrar la firma 55AA.
+        g_p3_montado = lfsMount(&s_comp);
+        g_p3_err = lfsUltimoError();
+        if (g_p3_montado) {
+            static LfsEntrada ent[24];
+            g_p3_n = lfsListar("/", ent, 24);
+            for (int i = 0; i < 3 && i < g_p3_n; i++) {
+                snprintf(g_p3_prim[i], sizeof(g_p3_prim[i]), "%s%s",
+                         ent[i].carpeta ? "/" : "", ent[i].nombre);
+            }
         }
 #endif // LNZ_TOCAR_SD
 
@@ -344,6 +378,11 @@ static void lnzPeldano1()
     // seguridad por si el boton no responde.
     bool boot_ahora = (digitalRead(S3_BTN_BOOT) == LOW);
     if (boot_ahora || (int32_t)(millis() - t_fin) >= 0) {
+#if LNZ_TOCAR_SD
+        // Desmontar ANTES de soltar: a partir de aqui la tarjeta es del MSX y
+        // no debe quedar ni un descriptor nuestro apuntandola.
+        lfsUnmount();
+#endif
         compSdRelease(&s_comp);             // suelta: el MSX arranca
         g_p1_reteniendo = false;
         fase = 2;
@@ -366,6 +405,55 @@ static void lnzPeldano1()
 
 }
 #endif // LNZ_PELDANO1
+
+// ---------------------------------------------------------------------------
+//  UNA sola forma de leer un sector, y sin adivinar tiempos.
+//
+//  Habia tres copias de esta secuencia y todas miraban `ocupado` JUSTO despues
+//  de pedir el sector. sdc_bridge IGNORA la peticion si el lector esta ocupado,
+//  y entonces `ocupado` sale 0, la espera acaba al instante y se devuelve el
+//  BUFFER ANTERIOR sin dar error.
+//
+//  El primer arreglo -- exigir ver `ocupado` SUBIR -- fue peor: si la lectura
+//  termina antes del primer sondeo, o si el estado ya venia ocupado de antes,
+//  el flanco no se ve y se tiraba una lectura BUENA (error 241 en placa).
+//
+//  Asi que no se persigue ningun flanco. Se espera a que la tarjeta este
+//  LIBRE, se pide, se espera a que vuelva a estarlo, y se lee. Sin suposiciones
+//  sobre cuanto tarda nada.
+// ---------------------------------------------------------------------------
+static bool esperarLibre(Companion *c, uint32_t ms)
+{
+    uint32_t tope = millis() + ms;
+    while ((int32_t)(millis() - tope) < 0) {
+        if (!compSdBusy(c)) return true;
+        delay(1);
+    }
+    return false;
+}
+
+bool compSdLeerSector(Companion *c, uint32_t lba, uint8_t *buf512)
+{
+    if (!c || !c->xfer || !buf512) return false;
+
+    for (int intento = 0; intento < 3; intento++) {
+        // 1) que la tarjeta este libre ANTES de pedir: si esta ocupada, el
+        //    puente ignoraria la peticion en silencio.
+        if (!esperarLibre(c, 1500)) continue;
+
+        // 2) pedir
+        compSdRead(c, lba);
+
+        // 3) dejarle arrancar y esperar a que acabe. El margen inicial evita
+        //    confundir "aun no ha empezado" con "ya ha terminado".
+        delay(2);
+        if (!esperarLibre(c, 1500)) continue;
+
+        // 4) ahora el buffer es de ESTA lectura
+        if (compSdSector(c, buf512)) return true;
+    }
+    return false;
+}
 
 void companionTask()
 {

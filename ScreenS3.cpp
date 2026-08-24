@@ -472,6 +472,20 @@ void screenSetSdDiag(uint8_t ver, bool hold, bool busy0, bool busy1, uint8_t int
     g_scr.sdIntentos = intentos;
 }
 
+void screenSetFs(bool ok, uint8_t err, int n, const char prim[3][20],
+                 uint32_t lba, uint8_t tipo, uint8_t nparts, const uint8_t *ini4,
+                 uint32_t pmAntes, uint32_t pmDespues)
+{
+    for (int i = 0; i < 4; i++) g_scr.fsIni[i] = ini4 ? ini4[i] : 0;
+    g_scr.pmAntes = pmAntes; g_scr.pmDespues = pmDespues;
+    g_scr.fsOk = ok; g_scr.fsErr = err; g_scr.fsN = n;
+    g_scr.fsLba = lba; g_scr.fsTipo = tipo; g_scr.fsNParts = nparts;
+    for (int i = 0; i < 3; i++) {
+        strncpy(g_scr.fsPrim[i], prim[i], sizeof(g_scr.fsPrim[i]) - 1);
+        g_scr.fsPrim[i][sizeof(g_scr.fsPrim[i]) - 1] = 0;
+    }
+}
+
 void screenSetTraffic(uint32_t rxBytesPerSec, uint32_t txBytesPerSec)
 {
     g_scr.rxBps = rxBytesPerSec; g_scr.txBps = txBytesPerSec;

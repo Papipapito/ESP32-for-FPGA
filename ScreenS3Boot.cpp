@@ -24,6 +24,8 @@
 
 #include "ScreenS3.h"
 #include "ScreenS3_internal.h"
+#include "Companion.h"   // g_ultimo_sdstat
+#include "LauncherFs.h"  // sonda de particiones
 
 // El reloj cae al de la configuracion UNAPI (offset GMT) si nadie empuja hora.
 // Ponlo a 0 para portar ScreenS3 a un firmware sin UNAPI (p. ej. el MSXimus).
@@ -278,6 +280,8 @@ static void basicPrintLine(const char *s)
 #define DOS_R_LNZ3    13
 #define DOS_R_SD      14
 #define DOS_R_SD2     15
+#define DOS_R_FS      16
+#define DOS_R_FS1     17
 #define DOS_C_VALUE   6        // las etiquetas ocupan las columnas 0..5
 
 static void dosScreenInit()
@@ -379,6 +383,60 @@ static void dosRender()
                  g_scr.sdBusy0 ? 1 : 0, g_scr.sdBusy1 ? 1 : 0,
                  (unsigned)g_scr.sdIntentos);
         cellField(DOS_R_SD2, 0, lz, 34, ATTR_DOS_DIM);
+
+        // ---- peldano 3: FatFs ----
+        // La linea dice SIEMPRE lo que se vio en la tabla de particiones,
+        // monte o no: "no monta" a secas no distingue una tarjeta sin FAT
+        // de una que si la tiene pero en una particion que no miramos.
+        if (g_scr.fsOk) snprintf(lz, sizeof(lz), "FS OK  %d entradas  p%02X@%lu",
+                                 g_scr.fsN, (unsigned)g_scr.fsTipo,
+                                 (unsigned long)g_scr.fsLba);
+        // Al fallar se enseñan los 4 primeros bytes que leyo el MONTAJE.
+        // Compararlos con los del peldano 2 (linea SD0) dice si las dos
+        // lecturas del MISMO sector coinciden. Si no, el fallo es del codigo.
+        else            snprintf(lz, sizeof(lz), "FS err=%u %up t%02X @%lu m%02X%02X%02X%02X",
+                                 (unsigned)g_scr.fsErr, (unsigned)g_scr.fsNParts,
+                                 (unsigned)g_scr.fsTipo, (unsigned long)g_scr.fsLba,
+                                 g_scr.fsIni[0], g_scr.fsIni[1],
+                                 g_scr.fsIni[2], g_scr.fsIni[3]);
+        cellField(DOS_R_FS, 0, lz, 34, g_scr.fsOk ? ATTR_DOS : ATTR_DOS_DIM);
+        // La MEDIDA: 32 muestras de `ocupado` a 1 ms, antes de pedir nada y
+        // justo despues de pedir el sector. Se lee de izquierda a derecha.
+        // Las 4 entradas de la tabla, y lo que hay DE VERDAD en el sector al
+        // que apunta la elegida: si en 0x36 pone "FAT16", la particion es
+        // buena; si no, o la tabla es basura o la particion no sirve.
+        {
+            const uint8_t  *pt = lfsPTipos();
+            const uint32_t *pl = lfsPLbas();
+            snprintf(lz, sizeof(lz), "P %02X@%lu %02X@%lu %02X %02X",
+                     pt[0], (unsigned long)pl[0], pt[1], (unsigned long)pl[1],
+                     pt[2], pt[3]);
+            cellField(DOS_R_FS1, 0, lz, 38, ATTR_DOS);
+
+            const uint8_t *v = lfsVbrFat();
+            const uint8_t *v0 = lfsVbrIni();
+            snprintf(lz, sizeof(lz), "BPB %u/%u r%u n%u d%u f%u",
+                     (unsigned)lfsBps(), (unsigned)lfsSpc(), (unsigned)lfsRsv(),
+                     (unsigned)lfsNfat(), (unsigned)lfsRoot(), (unsigned)lfsFsz());
+            cellField(DOS_R_FS1 + 1, 0, lz, 38, ATTR_DOS);
+            // s1 = los 4 primeros del sector 1 + su firma final + el byte
+            // de tipo de su "particion 0". Si sale identico al sector 0
+            // (linea FS, campo m) es que la lectura devolvio el buffer viejo.
+            {
+                const uint8_t *v = lfsVbrFat();
+                const uint8_t *v0 = lfsVbrIni();
+                snprintf(lz, sizeof(lz), "s1 %02X%02X%02X%02X fin%02X%02X p%02X%02X tot%lu",
+                         v0[0], v0[1], v[0], v[1], v[2], v[3], v[4], v[5],
+                         (unsigned long)lfsTot());
+            }
+            cellField(DOS_R_FS1 + 2, 0, lz, 38, ATTR_DOS);
+        }
+
+        if (g_scr.fsOk) {
+            snprintf(lz, sizeof(lz), "%s %s %s",
+                     g_scr.fsPrim[0], g_scr.fsPrim[1], g_scr.fsPrim[2]);
+            cellField(DOS_R_FS1 + 3, 0, lz, 38, ATTR_DOS_DIM);
+        }
     }
 }
 

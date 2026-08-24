@@ -154,6 +154,9 @@ bool compSdBusy   (Companion *c);      // la tarjeta sigue con la lectura
 // tres a la vez, porque el fallo puede estar en cualquiera y mirarlos por
 // separado obliga a suponer los otros dos.
 bool compSdStatus (Companion *c, uint8_t *ver, bool *busy, bool *hold);
+// Ultimo {sd_init, card_stat} leido: bit4 = arranque pedido, bits 3:0 = estado
+// de la maquina de la tarjeta (1 = IDLING, 2 = STANDBY, 13/14 = leyendo).
+extern uint8_t g_ultimo_sdstat;
 // Vuelca el sector ya leido. 514 bytes en UNA transferencia (el puente
 // reinicia su puntero en cada trama, no se puede trocear).
 bool compSdSector (Companion *c, uint8_t *buf512);
@@ -162,6 +165,13 @@ bool compSdSector (Companion *c, uint8_t *buf512);
 
 // ---- lado hardware (CompanionSpi.cpp, solo S3) ---------------------------
 #ifdef BOARD_S3
+// Pide un sector y lo devuelve, esperando a que la lectura ARRANQUE antes de
+// esperar a que acabe. Es la UNICA forma correcta: usar compSdRead+compSdSector
+// a mano se traga el buffer anterior si el puente ignoro la peticion.
+// Vive aqui, en el lado hardware, porque necesita millis()/delay() -- y
+// Companion.cpp se mantiene C++ puro a proposito, para poder probarlo en el PC.
+bool compSdLeerSector(Companion *c, uint32_t lba, uint8_t *buf512);
+
 bool companionSetup();      // arranca SPI3_HOST y hace el handshake de version
 void companionTask();       // llamar desde loop(): prueba manual con BOOT
 extern uint8_t g_companionVersion;   // 0 = la FPGA no contesta

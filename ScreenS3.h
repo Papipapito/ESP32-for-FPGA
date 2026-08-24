@@ -145,6 +145,10 @@ void screenSetSd(uint16_t firma, bool ok, const uint8_t *ini4);
 // Estado del puente de SD: version, si tenemos el mando, si la tarjeta estaba
 // ocupada al empezar y si se puso ocupada al pedirle el sector.
 void screenSetSdDiag(uint8_t ver, bool hold, bool busy0, bool busy1, uint8_t intentos);
+// Peldano 3: FatFs montado, error, cuantas entradas y las tres primeras.
+void screenSetFs(bool ok, uint8_t err, int n, const char prim[3][20],
+                 uint32_t lba, uint8_t tipo, uint8_t nparts, const uint8_t *ini4,
+                 uint32_t pmAntes, uint32_t pmDespues);
 
 // Trafico del enlace, en BYTES POR SEGUNDO (ya promediado por quien llama).
 void screenSetTraffic(uint32_t rxBytesPerSec, uint32_t txBytesPerSec);
