@@ -131,7 +131,7 @@ bool compStatus  (Companion *c, uint8_t *version, uint8_t *subversion);
 // aterriza la respuesta en vez de suponerlo: el desfase del full duplex se
 // mide, no se deduce. (Un banco con bus simulado no lo caza: la respuesta la
 // coloca el propio simulador donde el codigo cree que va.)
-void compProbe(Companion *c, uint8_t destino, uint8_t comando, uint8_t *rx8);
+void compProbe(Companion *c, uint8_t destino, uint8_t comando, uint8_t *rx16);
 
 // --- lanzador: envio ------------------------------------------------------
 void compVdpWrite (Companion *c, uint8_t puerto, uint8_t dato);
@@ -157,6 +157,17 @@ bool compSdStatus (Companion *c, uint8_t *ver, bool *busy, bool *hold);
 // Ultimo {sd_init, card_stat} leido: bit4 = arranque pedido, bits 3:0 = estado
 // de la maquina de la tarjeta (1 = IDLING, 2 = STANDBY, 13/14 = leyendo).
 extern uint8_t g_ultimo_sdstat;
+// Contadores del puente (v31m): peticiones levantadas, lecturas terminadas y
+// sectores volcados. Separan "no pide" de "no responde" de "sector erroneo".
+extern uint8_t g_sd_pide, g_sd_acaba, g_sd_sector;
+extern uint16_t g_sd_ultsec;   // rsector real del ultimo lanzamiento
+extern uint16_t g_sd_reintentos;  // tramas descartadas por venir corruptas
+// Pide un sector y verifica, releyendo, que el LBA llego de verdad.
+bool compSdPedirVerificado(Companion *c, uint32_t lba);
+
+// Telemetria de la ultima lectura: LBA pedido, si el lector llego a ponerse
+// ocupado, y cuantos intentos hicieron falta.
+extern uint8_t g_ult_lba; extern bool g_ult_arranco; extern uint8_t g_ult_int;
 // Vuelca el sector ya leido. 514 bytes en UNA transferencia (el puente
 // reinicia su puntero en cada trama, no se puede trocear).
 bool compSdSector (Companion *c, uint8_t *buf512);

@@ -115,7 +115,7 @@ typedef struct {
     uint16_t lnzPerdidos;
     uint32_t lnzEnviados;
     uint8_t  lnzFase, lnzHidVer;
-    uint8_t  lnzRaw[8];      // los 8 bytes crudos de MISO
+    uint8_t  lnzRaw[16];      // los 8 bytes crudos de MISO
     uint16_t sdFirma;        // bytes 510-511 del sector 0
     bool     sdOk;
     uint8_t  sdIni[4];

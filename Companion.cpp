@@ -180,12 +180,16 @@ void compVdpReg(Companion *c, uint8_t registro, uint8_t valor)
     enviar(c, t, compBuildVdpReg(t, registro, valor));
 }
 
-void compProbe(Companion *c, uint8_t destino, uint8_t comando, uint8_t *rx8)
+void compProbe(Companion *c, uint8_t destino, uint8_t comando, uint8_t *rx16)
 {
-    if (!c || !c->xfer || !rx8) return;
-    uint8_t tx[8] = { destino, comando, 0, 0, 0, 0, 0, 0 };
-    for (int i = 0; i < 8; i++) rx8[i] = 0;
-    c->xfer(tx, rx8, 8, c->user);
+    if (!c || !c->xfer || !rx16) return;
+    // 16 bytes, y NADA se sobrescribe despues. La version de 8 se quedaba justo
+    // en el byte donde empiezan los contadores, y ademas la prueba del pull-up
+    // machacaba los dos ultimos: la sonda tapaba el dato que hacia falta.
+    uint8_t tx[16];
+    for (int i = 0; i < 16; i++) { tx[i] = 0; rx16[i] = 0; }
+    tx[0] = destino; tx[1] = comando;
+    c->xfer(tx, rx16, 16, c->user);
 }
 
 size_t compVdpBulk(Companion *c, uint8_t puerto, const uint8_t *datos, size_t n)
@@ -239,13 +243,37 @@ void compSdRead(Companion *c, uint32_t lba)
 }
 
 uint8_t g_ultimo_sdstat = 0;
+uint8_t g_sd_pide = 0, g_sd_acaba = 0, g_sd_sector = 0;
+uint16_t g_sd_ultsec = 0;
+
+// 🚨 EL ENLACE CORROMPE TRAMAS. Medido en placa: la MISMA consulta alterna
+// entre datos correctos y la trama ENTERA a ceros, y no mejora bajando el reloj
+// de 13 MHz a 4, ni a 500 kHz, ni metiendo hueco entre tramas. Sin conocer aun
+// la causa, el protocolo tiene que sobrevivir a ello: se VALIDA la respuesta
+// (la version del puente es 1 por contrato) y se REINTENTA.
+//
+// Esto no tapa el fallo -- se sigue contando cuantas veces hay que reintentar,
+// para no perder de vista que el canal esta mal.
+uint16_t g_sd_reintentos = 0;
 
 bool compSdStatus(Companion *c, uint8_t *ver, bool *busy, bool *hold)
 {
     if (!c || !c->xfer) return false;
-    uint8_t tx[COMP_MAX_FRAME] = { COMP_TGT_SDC, COMP_SDC_STATUS, 0, 0, 0, 0 };
-    uint8_t rx[COMP_MAX_FRAME] = {0};
-    c->xfer(tx, rx, 6, c->user);
+    // 9 bytes: ademas de version/ocupado/mando y card_stat, el puente devuelve
+    // TRES CONTADORES (v31m) que separan lo que desde fuera se ve igual:
+    //   n_pide   veces que ha levantado rstart
+    //   n_acaba  pulsos de rdone vistos
+    //   n_sector sectores volcados al buffer
+    uint8_t tx[16] = { COMP_TGT_SDC, COMP_SDC_STATUS, 0,0,0,0,0,0,0,0,0 };
+    uint8_t rx[16] = {0};
+    // Hasta 6 intentos: la version tiene que salir 1. Una trama a ceros o con
+    // cualquier otro valor ahi es basura y se descarta entera.
+    for (int intento = 0; intento < 6; intento++) {
+        for (int k = 0; k < 16; k++) rx[k] = 0;
+        c->xfer(tx, rx, 11, c->user);
+        if (rx[2] == 0x01) break;
+        g_sd_reintentos++;
+    }
     // sdc_bridge carga dout EN el byte del comando (a diferencia de hid.v):
     // rx[2]=VERSION, rx[3]={0,busy}, rx[4]={0,hold}.
     if (ver)  *ver  = rx[2];
@@ -258,6 +286,13 @@ bool compSdStatus(Companion *c, uint8_t *ver, bool *busy, bool *hold)
     // card_stat se trunca de 5 a 4 bits en sd_reader, asi que IDLING(17)->1 y
     // STANDBY(18)->2. Sigue valiendo para distinguirlos de READING(13/14).
     g_ultimo_sdstat = rx[5];
+    g_sd_pide   = rx[6];
+    g_sd_acaba  = rx[7];
+    g_sd_sector = rx[10];
+    // rx[8]/rx[9] = los 16 bits bajos del rsector con el que se lanzo la
+    // ultima lectura, congelado DENTRO del puente. Si aqui sale 0 cuando
+    // pedimos otro sector, el numero se pierde antes de llegar al lector.
+    g_sd_ultsec = (uint16_t)(rx[8] | (rx[9] << 8));
     return rx[2] != 0x00 && rx[2] != 0xFF;
 }
 
@@ -269,6 +304,21 @@ bool compSdBusy(Companion *c)
     c->xfer(tx, rx, 5, c->user);
     // sdc_bridge carga dout EN el byte del comando: rx[2]=VERSION, rx[3]=busy.
     return (rx[3] & 1) != 0;
+}
+
+// Pide un sector y COMPRUEBA, releyendo el estado, que el LBA quedo guardado.
+// Sin esto, una trama de LEER corrupta lanza la lectura con sector 0 y devuelve
+// el sector 0 sin dar el menor error: es justo lo que llevaba pasando.
+bool compSdPedirVerificado(Companion *c, uint32_t lba)
+{
+    for (int intento = 0; intento < 6; intento++) {
+        compSdRead(c, lba);
+        uint8_t v = 0; bool b = false, h = false;
+        compSdStatus(c, &v, &b, &h);
+        if (v == 0x01 && g_sd_ultsec == (uint16_t)(lba & 0xFFFF)) return true;
+        g_sd_reintentos++;
+    }
+    return false;
 }
 
 bool compSdSector(Companion *c, uint8_t *buf512)

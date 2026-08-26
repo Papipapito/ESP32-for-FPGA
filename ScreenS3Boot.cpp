@@ -356,7 +356,8 @@ static void dosRender()
         snprintf(lz, sizeof(lz), "c%u", (unsigned)g_scr.lnzColor);
         cellFieldRight(DOS_R_LNZ1, lz, 5, ATTR_DOS_DIM);
 
-        snprintf(lz, sizeof(lz), "ENV %lu  PERD %u",
+        // ENV lleva ahora el SEC de la prueba del LBA inconfundible (0x1234).
+        snprintf(lz, sizeof(lz), "LBA1234-> %lu   PERD %u",
                  (unsigned long)g_scr.lnzEnviados, (unsigned)g_scr.lnzPerdidos);
         cellField(DOS_R_LNZ2, 0, lz, 30,
                   g_scr.lnzPerdidos ? ATTR_DOS : ATTR_DOS_DIM);
@@ -367,9 +368,10 @@ static void dosRender()
         // linea en "MISO 00 00 00 0" -- 15 caracteres justos. Estuvimos un
         // buen rato razonando sobre los cuatro primeros bytes creyendo que
         // eran los ocho.
-        snprintf(lz, sizeof(lz), "MISO %02X %02X %02X %02X %02X %02X %02X %02X",
-                 g_scr.lnzRaw[0], g_scr.lnzRaw[1], g_scr.lnzRaw[2], g_scr.lnzRaw[3],
-                 g_scr.lnzRaw[4], g_scr.lnzRaw[5], g_scr.lnzRaw[6], g_scr.lnzRaw[7]);
+        // Desde rx[2]: version, ocupado, mando, st, y LOS CONTADORES.
+        snprintf(lz, sizeof(lz), "SDC> %02X %02X %02X %02X %02X %02X %02X %02X",
+                 g_scr.lnzRaw[2], g_scr.lnzRaw[3], g_scr.lnzRaw[4], g_scr.lnzRaw[5],
+                 g_scr.lnzRaw[6], g_scr.lnzRaw[7], g_scr.lnzRaw[8], g_scr.lnzRaw[9]);
         cellField(DOS_R_LNZ3, 0, lz, 34, ATTR_DOS);
 
         snprintf(lz, sizeof(lz), "SD0 %04X %s  ini %02X%02X%02X%02X",
@@ -378,10 +380,15 @@ static void dosRender()
                  g_scr.sdIni[0], g_scr.sdIni[1], g_scr.sdIni[2], g_scr.sdIni[3]);
         cellField(DOS_R_SD, 0, lz, 34, g_scr.sdOk ? ATTR_DOS : ATTR_DOS_DIM);
 
-        snprintf(lz, sizeof(lz), "SDC v%u hold%d b0=%d b1=%d int%u",
-                 (unsigned)g_scr.sdVer, g_scr.sdHold ? 1 : 0,
-                 g_scr.sdBusy0 ? 1 : 0, g_scr.sdBusy1 ? 1 : 0,
-                 (unsigned)g_scr.sdIntentos);
+        // pide / acaba / sect: EL diagnostico. Separan sin interpretacion
+        // "el puente no pide", "el lector no responde" y "responde con el
+        // sector equivocado", que desde fuera se ven todos igual.
+        // REINT = tramas descartadas por corruptas. No es cosmetico: mide
+        // lo malo que esta el canal aunque el protocolo lo sobreviva.
+        snprintf(lz, sizeof(lz), "SDC h%d p%u a%u SEC=%u REINT=%u",
+                 g_scr.sdHold ? 1 : 0,
+                 (unsigned)g_sd_pide, (unsigned)g_sd_acaba,
+                 (unsigned)g_sd_ultsec, (unsigned)g_sd_reintentos);
         cellField(DOS_R_SD2, 0, lz, 34, ATTR_DOS_DIM);
 
         // ---- peldano 3: FatFs ----
@@ -425,9 +432,12 @@ static void dosRender()
             {
                 const uint8_t *v = lfsVbrFat();
                 const uint8_t *v0 = lfsVbrIni();
-                snprintf(lz, sizeof(lz), "s1 %02X%02X%02X%02X fin%02X%02X p%02X%02X tot%lu",
-                         v0[0], v0[1], v[0], v[1], v[2], v[3], v[4], v[5],
-                         (unsigned long)lfsTot());
+                // ult = de la ULTIMA lectura (la del VBR): LBA pedido, si
+                // arranco (A/-) e intentos. "A" con datos del sector 0 = se
+                // atendio y devolvio otro sector; "-" = se ignoro.
+                snprintf(lz, sizeof(lz), "s1 %02X%02X%02X%02X f%02X%02X ult%02X%c%u",
+                         v0[0], v0[1], v[0], v[1], v[2], v[3],
+                         g_ult_lba, g_ult_arranco ? 'A' : '-', (unsigned)g_ult_int);
             }
             cellField(DOS_R_FS1 + 2, 0, lz, 38, ATTR_DOS);
         }

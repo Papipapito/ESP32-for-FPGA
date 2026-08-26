@@ -168,7 +168,19 @@
 // 13,33 MHz eso son 37 ns para salir del flop (con el reloj entrando por
 // una ruta LOCAL_CLOCK), cruzar el cable suelto y estar quieto. A 4 MHz
 // son 125 ns.
-#define S3_SPI_HZ      4000000
+// 25/08: BAJADO a 500 kHz para CARACTERIZAR un enlace INTERMITENTE. Medido en
+// placa: dos sondas del MISMO estado, con segundos de diferencia, se
+// contradicen -- una trae datos buenos y la otra devuelve la trama ENTERA a
+// ceros. Y "SPI v0"/"SPI v1" alterna entre arranques.
+//
+// Encaja con todo: las tramas CORTAS (2-5 bytes: pintar el VDP, la tecla del
+// BOOT, TOMAR) funcionan siempre; las LARGAS (LEER son 6, ESTADO 11, un sector
+// 514) se corrompen, y cuando se corrompe el comando de LEER los bytes del LBA
+// llegan a cero: la lectura se lanza con sector 0 y devuelve el sector 0.
+//
+// Si a 500 kHz deja de fallar, es integridad de senal (cables sueltos, sin
+// retorno de masa) y el arreglo es el cableado, no el codigo.
+#define S3_SPI_HZ       500000
 #define S3_SPI_MODE   1
 
 // ---------------------------------------------------------------------------

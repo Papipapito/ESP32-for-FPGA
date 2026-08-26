@@ -455,7 +455,7 @@ void screenSetLauncher(uint8_t ver, uint16_t perdidos, uint32_t enviados,
 
 void screenSetLauncherRaw(const uint8_t *rx8)
 {
-    for (int i = 0; i < 8; i++) g_scr.lnzRaw[i] = rx8[i];
+    for (int i = 0; i < 16; i++) g_scr.lnzRaw[i] = rx8[i];
 }
 
 void screenSetSd(uint16_t firma, bool ok, const uint8_t *ini4)

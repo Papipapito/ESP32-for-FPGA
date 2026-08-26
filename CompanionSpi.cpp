@@ -46,6 +46,22 @@ static void spiXfer(const uint8_t *tx, uint8_t *rx, size_t n, void *)
     t.tx_buffer = tx;
     t.rx_buffer = rx;
     spi_device_polling_transmit(s_spi, &t);
+
+    // 🚨 HUECO OBLIGATORIO ENTRE TRAMAS.
+    //
+    // mcu_spi_new pone su contador de bytes a cero con `if (spi_io_ss)` EN EL
+    // DOMINIO DE 27 MHz, o sea POR NIVEL. Si dos tramas van pegadas y CS no se
+    // queda alto al menos un ciclo de ese reloj, el reinicio SE PIERDE: la
+    // trama se desplaza un byte y el byte de COMANDO se latchea como DESTINO.
+    // Con el comando 0 (ESTADO) el destino pasa a ser el 0, cuyo dato esta
+    // cableado a cero -> la trama entera vuelve a CEROS.
+    //
+    // Es exactamente el sintoma medido: alternaba entre datos buenos y
+    // 00 00 00 00 00 00 00 00, y no mejoraba al bajar el reloj de 13 MHz a 4 y
+    // luego a 500 kHz -- porque no era velocidad de bit, era el HUECO.
+    //
+    // 5 us son ~135 ciclos de 27 MHz: sobra, y a este ritmo no cuesta nada.
+    delayMicroseconds(5);
 }
 
 bool companionSetup()
@@ -217,23 +233,19 @@ static void lnzPeldano1()
     {
         static uint32_t t_probe = 0;
         if ((int32_t)(millis() - t_probe) >= 0) {
-            uint8_t rx8[8];
-            compProbe(&s_comp, COMP_TGT_HID, COMP_HID_STATUS, rx8);
+            uint8_t rx8[16];
+            // Se sondea el destino SDC, no el HID: lo que hay que ver es si el
+            // ESTADO del puente avanza de campo o repite el mismo byte. Los
+            // "contadores" p17/a17/s17 y SEC=0x1111 son todos 0x11 -- el valor
+            // del campo 2. Si el volcado crudo confirma que a partir de ahi se
+            // repite, el contador de campos no avanza, y entonces el comando de
+            // LEER nunca llega a su cuarto byte: por eso no se lanza ninguna
+            // lectura. Explicaria el sintoma original de punta a punta.
+            compProbe(&s_comp, COMP_TGT_SDC, COMP_SDC_STATUS, rx8);
 
-            // ---- LA PRUEBA DEL PULL-UP -------------------------------
-            // mcu_spi_new.v deja spi_io_dout a 0 con CS en reposo. Con un
-            // pull-up puesto en nuestro lado:
-            //   lee 0 -> la FPGA CONDUCE el pin: la salida vive y el dato es 0
-            //   lee 1 -> la FPGA NO conduce: el fallo es el pin/banco/rutado
-            // Distingue "responde cero" de "no responde", que mirando el bus
-            // se ven exactamente igual. Lo mismo con IRQ#, la otra salida de
-            // la FPGA en ese banco, que tampoco se ha ejercitado jamas.
-            gpio_pullup_en((gpio_num_t)S3_SPI_MISO);
-            gpio_pullup_en((gpio_num_t)S3_SPI_IRQ);
-            delayMicroseconds(50);
-            rx8[6] = (uint8_t)(0xE0 | (gpio_get_level((gpio_num_t)S3_SPI_MISO) ? 1 : 0));
-            rx8[7] = (uint8_t)(0xF0 | (gpio_get_level((gpio_num_t)S3_SPI_IRQ)  ? 1 : 0));
-
+            // (la prueba del pull-up se retira: ya dio su respuesta -- E0 = la
+            // FPGA SI conduce el MISO -- y estaba machacando los bytes 6 y 7,
+            // que es justo donde empiezan los contadores del puente.)
             screenSetLauncherRaw(rx8);
             t_probe = millis() + 1000;
         }
@@ -271,6 +283,18 @@ static void lnzPeldano1()
         }
         compSdTake(&s_comp);                // retiene el Z80
         g_p1_reteniendo = true;
+
+        // ---- PRUEBA DEL LBA INCONFUNDIBLE ------------------------------
+        // SEC=0 podria significar "el LBA se pierde" o simplemente "la ultima
+        // lectura lanzada era del sector 0" -- y casi todas lo son (el peldano 2
+        // lo pide en bucle). Se pide UNA vez un sector con un numero que no
+        // puede salir por casualidad, ANTES de cualquier otra lectura:
+        //   SEC=0x1234 -> el LBA SI llega: el fallo esta en otro sitio
+        //   SEC=0      -> el LBA se pierde en el camino
+        compSdRead(&s_comp, 0x1234);
+        delay(20);
+        { bool b=false; compSdStatus(&s_comp, &g_p2_ver, &b, &g_p2_hold); }
+        g_p1_enviados = g_sd_ultsec;        // se aparca donde se pueda ver
 
         // APAGAR LA PANTALLA (R#1 bit6 = 0). Sin esto la prueba no vale: el
         // color de fondo solo ocupa la tele ENTERA cuando el VDP esta en
@@ -432,20 +456,37 @@ static bool esperarLibre(Companion *c, uint32_t ms)
     return false;
 }
 
+// Telemetria de la ULTIMA lectura. Distingue las dos cosas que quedan por
+// separar: que la peticion se IGNORE (el lector nunca se pone ocupado) o que se
+// atienda y devuelva el sector equivocado. Desde fuera se ven igual: el buffer
+// trae el sector 0 en los dos casos.
+uint8_t g_ult_lba    = 0;     // los 8 bits bajos del LBA pedido
+bool    g_ult_arranco = false; // se llego a ver `ocupado` alto
+uint8_t g_ult_int    = 0;     // intentos consumidos
+
 bool compSdLeerSector(Companion *c, uint32_t lba, uint8_t *buf512)
 {
     if (!c || !c->xfer || !buf512) return false;
+    g_ult_lba = (uint8_t)lba; g_ult_arranco = false; g_ult_int = 0;
 
     for (int intento = 0; intento < 3; intento++) {
         // 1) que la tarjeta este libre ANTES de pedir: si esta ocupada, el
         //    puente ignoraria la peticion en silencio.
         if (!esperarLibre(c, 1500)) continue;
 
-        // 2) pedir
-        compSdRead(c, lba);
+        g_ult_int++;
 
-        // 3) dejarle arrancar y esperar a que acabe. El margen inicial evita
-        //    confundir "aun no ha empezado" con "ya ha terminado".
+        // 2) pedir, y VERIFICAR que el LBA ha llegado de verdad. Antes se
+        //    daba por hecho: una trama corrupta lanzaba la lectura con sector 0
+        //    y devolvia el sector 0 sin error, que es el fallo que nos ha
+        //    tenido dando vueltas.
+        if (!compSdPedirVerificado(c, lba)) continue;
+
+        // 3) mirar si ARRANCA. No se usa para decidir (un pulso puede pasar
+        //    desapercibido), solo para saber DESPUES si la peticion se atendio.
+        for (int k = 0; k < 40; k++) {
+            if (compSdBusy(c)) { g_ult_arranco = true; break; }
+        }
         delay(2);
         if (!esperarLibre(c, 1500)) continue;
 
