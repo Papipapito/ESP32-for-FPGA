@@ -26,9 +26,9 @@
 // Titulo del LCD. NEUTRO a proposito ("MSX" a secas, decision Albert 27/07):
 // este firmware es COMUN al MSXimus y al MSXnano — la version del core no es
 // cosa del ESP. Quien quiera personalizarlo: cambiar este define.
-#define DEVICE_NAME    "MSXimus"   // 31/07: peticion de Albert. Esta rama es la
-                                   // del MSXimus, asi que el titulo ya no tiene
-                                   // que ser neutro (la rama msxnano-s3 va aparte).
+#define DEVICE_NAME    "MSX"     // 04/09: vuelve a ser NEUTRO. Se puso "MSXimus"
+                                 // el 31/07, cuando cada maquina tenia su rama;
+                                 // ahora hay UNA sola y sirve a las dos.
 #define TURBO_PIN 3       // GPIO libre del C6 (header) cableado al pin de turbo del FPGA
 
 // Colores RGB565
@@ -78,25 +78,88 @@ static void fmtUptime(char *buf, uint32_t ms)
 }
 
 // ---------------------------------------------------------------------------
-// LOGO DE ARRANQUE (31/07, peticion de Albert; equivalente al que ya tiene el
-// companion S3, pero con el logo del MSXimus y sin la narrativa del BASIC).
+// ARRANQUE: el logotipo MSX armandose desde los dos lados
 //
-// ⚠️ NO BLOQUEA. La tentacion era pintar el logo y hacer delay(3000) aqui, pero
-// displaySetup() se llama desde el setup() del firmware UNAPI: tres segundos
-// parado ahi son tres segundos sin atender al MSX. En vez de eso se pinta el
-// logo, se apunta la hora, y displayTask() lo retira solo cuando toca.
+// Reproduce el arranque clasico del MSX2: dos copias del logo entran desde los
+// lados opuestos, SE CRUZAN, y lo que va quedando blanco es la zona donde
+// COINCIDEN. Ese detalle es el que lo hace reconocible -- si solo se deslizaran
+// hasta juntarse no seria lo mismo. Al cuajar, el logo entero queda blanco.
 //
-// El bitmap va EN CRUDO (240x240x2 = 115 KB). El hermano de la S3 lo comprime
-// con RLE porque aquel firmware iba al 80% de su particion; este va al 52% de
-// 3 MB, asi que sobra sitio y nos ahorramos un decodificador que pueda fallar.
-// Se regenera con: python tools/make_logo_c6.py
+// NO BLOQUEA, y esto no es negociable: displaySetup() se llama desde el setup()
+// del firmware UNAPI, asi que pararse aqui es dejar al MSX sin atender.
+// displaySetup() pinta el primer fotograma y apunta la hora; displayTask() va
+// avanzando la animacion desde loop() y retira el logo cuando vence el tiempo.
+//
+// El logo va como MASCARA de 1 bit (LogoMsx.h, 1,3 KB) y no como bitmap RGB565
+// (el LogoMsximus.h de antes eran 115 KB). Ademas de ocupar 85 veces menos, es
+// lo que permite pintarlo DOS veces y colorear el solape: con un bitmap fijo la
+// animacion no se puede hacer.
+// Se regenera con: python tools/make_logo_msx.py
 // ---------------------------------------------------------------------------
-#include "LogoMsximus.h"
+#include "LogoMsx.h"
 
-#define LOGO_MS   3000            // cuanto se ve el logo
+#define COL_MSX_BLUE  0x001C      // RGB(1,0,228): el azul del arranque original
+#define COL_LOGO_DIM  0x5AD7      // RGB(90,90,190): las copias mientras viajan
+
+#define LOGO_BOX_W    224         // caja negra; proporcion 3.11:1 del original
+#define LOGO_BOX_H    72
+#define LOGO_ANIM_MS  900         // lo que tarda en armarse
+#define LOGO_MS       3000        // cuanto se ve en total, animacion incluida
+#define LOGO_FPS_MS   25          // no repintar mas rapido que esto
+
+static const int16_t LOGO_BX = (240 - LOGO_BOX_W) / 2;
+static const int16_t LOGO_BY = (240 - LOGO_BOX_H) / 2;
+static const int16_t LOGO_OX = (LOGO_BOX_W - LOGO_MSX_W) / 2;   // dentro de la caja
+static const int16_t LOGO_OY = (LOGO_BOX_H - LOGO_MSX_H) / 2;
 
 static uint32_t t_logo    = 0;
+static uint32_t t_logo_fr = 0;   // ultimo repintado (limita los fps)
+static int16_t  logo_off  = -1;  // desplazamiento actual; 0 = ya cuajado
 static bool     logo_vivo = false;
+
+// Pinta la caja con las dos copias desplazadas -off y +off. Fila a fila con un
+// buffer de 224 pixeles (448 B): montar la caja entera serian 32 KB de RAM para
+// no ganar nada, el SPI del panel se traga 72 ventanas por fotograma de sobra.
+static void logoFrame(int16_t off)
+{
+    static uint16_t fila[LOGO_BOX_W];
+    for (int16_t y = 0; y < LOGO_BOX_H; y++) {
+        // La caja negra VIAJA CON CADA COPIA: al principio son dos pestanas en
+        // los bordes y van creciendo al converger. Pintar la caja entera desde
+        // el primer fotograma se ve mal -- en el original la caja es el fondo
+        // de cada mitad, no un marco fijo.
+        for (int16_t x = 0; x < LOGO_BOX_W; x++) fila[x] = COL_MSX_BLUE;
+        for (int16_t x = 0; x < LOGO_BOX_W - off; x++)   fila[x] = COL_BLACK;
+        for (int16_t x = (off < 0 ? 0 : off); x < LOGO_BOX_W; x++) fila[x] = COL_BLACK;
+        int16_t my = y - LOGO_OY;
+        if (my >= 0 && my < LOGO_MSX_H) {
+            const uint8_t *m = LOGO_MSX + my * LOGO_MSX_BPR;
+            for (int16_t x = 0; x < LOGO_MSX_W; x++) {      // copia de la izquierda
+                if (!(m[x >> 3] & (0x80 >> (x & 7)))) continue;
+                int16_t xi = LOGO_OX + x - off;
+                if (xi >= 0 && xi < LOGO_BOX_W) fila[xi] = COL_LOGO_DIM;
+            }
+            for (int16_t x = 0; x < LOGO_MSX_W; x++) {      // ...y la de la derecha:
+                if (!(m[x >> 3] & (0x80 >> (x & 7)))) continue;
+                int16_t xd = LOGO_OX + x + off;             // donde pisa a la otra,
+                if (xd >= 0 && xd < LOGO_BOX_W)             // BLANCO
+                    fila[xd] = (fila[xd] == COL_LOGO_DIM) ? COL_WHITE : COL_LOGO_DIM;
+            }
+        }
+        gfx->draw16bitRGBBitmap(LOGO_BX, LOGO_BY + y, fila, LOGO_BOX_W, 1);
+    }
+}
+
+// Desplazamiento segun el tiempo transcurrido: easing cubico (entra rapido y
+// frena al cuajar) en enteros a escala 1024, sin coma flotante.
+static int16_t logoOffset(uint32_t el)
+{
+    if (el >= LOGO_ANIM_MS) return 0;
+    uint32_t t   = (el * 1024) / LOGO_ANIM_MS;        // 0..1024
+    uint32_t inv = 1024 - t;
+    uint32_t cub = (inv * inv / 1024) * inv / 1024;   // (1-t)^3
+    return (int16_t)((cub * (LOGO_MSX_W + 16)) / 1024);
+}
 
 // El "marco" fijo de la pantalla de estado: titulo y lineas separadoras. Estaba
 // dentro de displaySetup(); se saca aparte porque ahora hay que pintarlo DOS
@@ -122,9 +185,11 @@ void displaySetup()
     if (!gfx->begin()) { lcd_ok = false; return; }
     lcd_ok = true;
 
-    gfx->fillScreen(COL_BLACK);
-    gfx->draw16bitRGBBitmap(0, 0, (uint16_t *)LOGO_MSXIMUS, LOGO_W, LOGO_H);
+    gfx->fillScreen(COL_MSX_BLUE);
+    logo_off  = logoOffset(0);
+    logoFrame(logo_off);
     t_logo    = millis();
+    t_logo_fr = t_logo;
     logo_vivo = true;
 }
 
@@ -139,6 +204,14 @@ void displayTask()
     // guardan el ultimo valor y ven que "ha cambiado" respecto a la pantalla en
     // blanco).
     if (logo_vivo) {
+        // Mientras no haya cuajado (off != 0) se sigue repintando; logoOffset()
+        // devuelve 0 en cuanto vence LOGO_ANIM_MS, asi que siempre converge
+        // aunque un loop() largo se salte fotogramas.
+        if (logo_off != 0 && now - t_logo_fr >= LOGO_FPS_MS) {
+            t_logo_fr = now;
+            int16_t off = logoOffset(now - t_logo);
+            if (off != logo_off) { logo_off = off; logoFrame(off); }
+        }
         if (now - t_logo < LOGO_MS) return;
         logo_vivo = false;
         drawChrome();
