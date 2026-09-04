@@ -11,23 +11,6 @@
  *        Mientras no este cableado, INPUT_PULLDOWN lo lee 0 -> muestra "Normal".
  */
 
-#include "Board.h"        // selector de placa y capacidades
-
-// ---------------------------------------------------------------------------
-// PANTALLA DE LA PLACA C6 (ESP32-C6-LCD-1.3, panel 240x240).
-// En la S3 (ESP32-1732S019, panel 320x170) manda ScreenS3, asi que aqui no se
-// compila nada: sus objetos globales se construirian con los pines del C6 -que
-// en la S3 son otra cosa- y ademas sobraria un driver entero.
-//
-// UNIFICACION 21/08: este fichero es el de la rama `launcher`, NO el de
-// `msxnano-s3`. El de msxnano-s3 era ANTERIOR y revertia tres cosas YA
-// VALIDADAS EN PLACA el 31/07: el DEVICE_NAME, el LOGO de arranque y -la
-// importante- el arreglo de ROTACION del ST7789 (rotacion 2 con
-// ROW_OFFSET2=80, que es la trampa clasica de estos paneles). Tomar la base
-// del S3 a ciegas lo habria perdido en silencio.
-// ---------------------------------------------------------------------------
-#ifdef BOARD_SCREEN_C6
-
 #include <Arduino_GFX_Library.h>
 #include <WiFi.h>
 #include <time.h>
@@ -209,11 +192,14 @@ void displayTask()
         }
     }
 
-    // ---------- Barra TURBO, repinta solo si cambia ----------
+    // ---------- Barra TURBO ----------
+    // El FPGA sube TURBO_PIN en modo turbo. Sin cable, el pulldown lo lee 0
+    // y pone "Normal": nunca destellos en frio.
     static uint32_t t_turbo = 0;
     static int8_t   last_turbo = -1;
     if (now - t_turbo >= 400) {
         t_turbo = now;
+        {
         int8_t turbo = digitalRead(TURBO_PIN) ? 1 : 0;
         if (turbo != last_turbo) {
             last_turbo = turbo;
@@ -226,6 +212,7 @@ void displayTask()
                 gfx->setTextColor(COL_DGREEN);
                 gfx->setTextSize(2); gfx->setCursor(16, 122); gfx->print("Normal 3.58MHz");
             }
+        }
         }
     }
 
@@ -257,5 +244,3 @@ void displayTask()
         }
     }
 }
-
-#endif // BOARD_SCREEN_C6 (pantalla del C6; en la S3 manda ScreenS3)

@@ -50,22 +50,6 @@ v0.3
     - Secondary capabilities bit 10 set (SSH client)
 */
 #include "UNAPIESP.h"
-// Mapa de pines y SELECTOR DE PLACA del companion MSXnano. Tiene que incluirse
-// AQUI, en el sketch principal: el IDE concatena los .ino empezando por este, y
-// si la placa solo se definiera en un modulo posterior, los #ifdef de
-// setup() y loop() -que van antes- no lo verian y se compilaria la placa vieja.
-#include "Board.h"
-// Contratos de los modulos del companion S3. Van aqui porque su implementacion
-// vive en .cpp (unidades de traduccion aparte), no en .ino: el sketch no ve sus
-// funciones si no incluimos las cabeceras. Los .ino SI se concatenan con este y
-// no necesitan include (Tape.ino, TapeWeb.ino).
-#ifdef BOARD_SCREEN_S3
-  #include "ScreenS3.h"     // pantalla grande: arranque BASIC -> MSX-DOS
-#endif
-#ifdef BOARD_HAS_USB_HOST
-  #include "UsbHost.h"      // teclado, mando (y raton) USB -> protocolo del FPGA
-  #include "Companion.h"    // enlace SPI con la FPGA (teclado/raton/joystick)
-#endif
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <Update.h>
@@ -472,28 +456,28 @@ void setUartSpeed(){
   Serial.flush();
   switch (stDeviceConfiguration.ucBaudRate) {
     case BR9600:
-      MSX_LINK_BEGIN(9600);
+      Serial.begin(9600);
       break;
     case BR19200:
-      MSX_LINK_BEGIN(19200);
+      Serial.begin(19200);
       break;
     case BR57600:
-      MSX_LINK_BEGIN(57600);
+      Serial.begin(57600);
       break;
     case BR115200:
-      MSX_LINK_BEGIN(115200);
+      Serial.begin(115200);
       break;
     case BR230400:
-      MSX_LINK_BEGIN(230400);
+      Serial.begin(230400);
       break;
     case BR460800:
-      MSX_LINK_BEGIN(460800);
+      Serial.begin(460800);
       break;
     case BR921600:
-      MSX_LINK_BEGIN(921600);
+      Serial.begin(921600);
       break;
     case BR859372:
-      MSX_LINK_BEGIN(859372);
+      Serial.begin(859372);
       break;
   }
 }
@@ -510,26 +494,7 @@ void setup() {
   Serial.print(" ");
   Serial.println(FIRMWARETYPE);
   Serial.println("(c) 2019-2026 Oduvaldo Pavan Junior - ducasp@gmail.com");
-  // --- companions del MSXnano -------------------------------------------
-  // La placa S3 (ESP32-1732S019) unifica lo que antes hacian dos: el C6 con su
-  // pantallita y la Pico Zero con el teclado/joystick USB. Los pines y el
-  // selector de placa viven en BoardS3.h.
-#ifdef BOARD_SCREEN_S3
-  // Pulldown a proposito: SIN CABLE tiene que leerse "Normal", no destellos en
-  // frio. Es la misma decision que ya se tomo en el C6 (_156).
-  pinMode(S3_FPGA_TURBO, INPUT_PULLDOWN);
-  screenSetup();                // pantalla 320x170: arranque BASIC -> MSX-DOS (ScreenS3)
-#endif
-#ifdef BOARD_SCREEN_C6
-  displaySetup();               // pantalla 240x240 de estado WiFi (Display.ino)
-#endif
-#ifdef BOARD_HAS_USB_HOST
-  usbHostSetup();               // teclado + mando USB -> protocolo del FPGA (solo S3)
-#ifdef BOARD_S3
-  companionSetup();             // enlace SPI con la FPGA (+ handshake de version)
-#endif
-#endif
-  tapeSetup();                  // cinta virtual por stream (Tape.ino; pines en BoardS3.h)
+  displaySetup();               // <-- pantalla de estado WiFi (Display.ino, anadido para MSXnano)
   longReadyTimeOut = 0;
   btReadyRetries = 3;
   btReceivedCommand = false;
@@ -2329,12 +2294,6 @@ void received_data_parser () {
           case CUSTOM_F_SET_AUTOCLOCK:
           case CUSTOM_F_FILE_BOARD:
           case CUSTOM_F_SETBAUD:
-          case CUSTOM_F_TSX_LIST:
-          case CUSTOM_F_TSX_PLAY:
-          case CUSTOM_F_TSX_STATUS:
-          case CUSTOM_F_TSX_UPLOAD:
-          case CUSTOM_F_TSX_UPBLOCK:
-          case CUSTOM_F_TSX_FIND:
           case SSH_GET_CAPAB:
           case SSH_OPEN:
           case SSH_CLOSE:
@@ -2409,28 +2368,6 @@ proccesscmd:
             SendQuickResponse(btCommand, UNAPI_ERR_OK);
             setUartSpeed();
           }
-        break;
-        // ---- cinta virtual por stream (TapeWeb.ino, MSXnano/MSXimus) ----
-        case CUSTOM_F_TSX_LIST:
-          if (uiCmdDataLen != 3) SendQuickResponse(btCommand, UNAPI_ERR_INV_PARAM);
-          else tsxCmdList(btCommandData[0], btCommandData[1], btCommandData[2]);
-        break;
-        case CUSTOM_F_TSX_PLAY:
-          if (uiCmdDataLen == 0) tsxCmdStop();          // payload vacio = STOP
-          else if (uiCmdDataLen != 3) SendQuickResponse(btCommand, UNAPI_ERR_INV_PARAM);
-          else tsxCmdPlay(btCommandData[0], btCommandData[1], btCommandData[2]);
-        break;
-        case CUSTOM_F_TSX_STATUS:
-          tsxCmdStatus();
-        break;
-        case CUSTOM_F_TSX_UPLOAD:
-          tsxCmdUploadStart(btCommandData, uiCmdDataLen);
-        break;
-        case CUSTOM_F_TSX_UPBLOCK:
-          tsxCmdUploadBlock(btCommandData, uiCmdDataLen);
-        break;
-        case CUSTOM_F_TSX_FIND:
-          tsxCmdFind(btCommandData, uiCmdDataLen);
         break;
         case CUSTOM_F_FILE_BOARD:
           if (strcmp(FIRMWARETYPE,(const char*)btCommandData) == 0) {
@@ -3931,59 +3868,7 @@ proccesscmd:
 void loop() {
   unsigned int uiI;
 
-  // Ambos se auto-regulan por dentro y NO bloquean: este loop tambien atiende
-  // el enlace UNAPI con el MSX, que es lo prioritario.
-#ifdef BOARD_SCREEN_S3
-  screenTick();                 // anima el arranque y refresca la consola MSX-DOS
-  // Indicador de TURBO. El FPGA saca un nivel por su pin de turbo; aqui se
-  // sondea cada 400 ms, que es de sobra para un indicador y no le quita
-  // tiempo al enlace UNAPI. En el C6 esto lo hace displayTask() con su propio
-  // pin (GPIO3): OJO, ese numero NO vale en la S3, por eso sale de BoardS3.h.
-  {
-    static uint32_t t_turbo = 0;
-    static int8_t   last_turbo = -1;
-    uint32_t now_ms = millis();
-    if (now_ms - t_turbo >= 400) {
-      t_turbo = now_ms;
-      int8_t turbo = digitalRead(S3_FPGA_TURBO) ? 1 : 0;
-      if (turbo != last_turbo) { last_turbo = turbo; screenSetTurbo(turbo != 0); }
-    }
-  }
-  // ---- ESTADO REAL -> PANTALLA -------------------------------------------
-  // Esto FALTABA, y era el cuelgue: screenSetWifi() y screenSetUsb() solo se
-  // llamaban desde los tests, asi que la secuencia de arranque se quedaba
-  // esperando para siempre unos avisos que nadie daba.
-  //
-  // Se alimenta por SONDEO cada segundo, no por evento de una sola vez. Es a
-  // proposito: con NADA enchufado al USB no hay ninguna enumeracion que
-  // avisar, asi que un aviso unico no llegaria JAMAS y volveriamos al mismo
-  // cuelgue. Sondeando, "no hay nada" tambien es una respuesta.
-  {
-    static uint32_t t_scr = 0;
-    uint32_t now_ms = millis();
-    if (now_ms - t_scr >= 1000) {
-      t_scr = now_ms;
-      bool wok = (WiFi.status() == WL_CONNECTED);
-      if (wok) {
-        String ip = WiFi.localIP().toString();
-        screenSetWifi(WiFi.SSID().c_str(), ip.c_str(), WiFi.RSSI(), true);
-      } else {
-        screenSetWifi(nullptr, nullptr, 0, false);
-      }
-      screenSetUsb(g_usbHostKbdUp != 0, g_usbHostPadUp != 0);
-    }
-  }
-#endif
-#ifdef BOARD_SCREEN_C6
-  displayTask();                // refresca la pantalla del C6 (1/s)
-#endif
-#ifdef BOARD_HAS_USB_HOST
-#ifdef BOARD_S3
-  companionTask();              // bring-up del SPI: el boton BOOT manda una 'A'
-#endif
-  usbHostTask();                // bombea el USB y emite el resync de 250 ms que
-                                // mantiene callado el watchdog de 1 s del FPGA
-#endif
+  displayTask();                // <-- refresca la pantalla (self-throttled 1/s, Display.ino)
 
   if (bDisableRadioPending) {
     bDisableRadioPending = false;
