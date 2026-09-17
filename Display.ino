@@ -15,13 +15,30 @@
 #include <WiFi.h>
 #include <time.h>
 #include "UNAPIESP.h"     // ESPConfig, FIRMWARETYPE (guarda de inclusion)
+#include "ESP32BOARDS.h"  // placa: pines del enlace y TURBO_PIN
 
+#ifdef ESP32_S3
+// ESP32-1732S019: ST7789V 170x320 IPS por SPI (SPI2_HOST). Pines VERIFICADOS (BoardS3.h de agosto +
+// esquematico de Sunton): ninguno sale al header. Apaisada: 320 de ancho x 170 de alto, offset 35.
+#define LCD_SCK   12
+#define LCD_MOSI  13
+#define LCD_CS    10
+#define LCD_DC    11
+#define LCD_RST    1
+#define LCD_BL    14
+#define LCD_W    320
+#define LCD_H    170
+#define LCD_ROT    1        // 1 o 3 segun como se monte (3 = girada 180)
+#else
 #define LCD_SCK   7
 #define LCD_MOSI  6
 #define LCD_CS    14
 #define LCD_DC    15
 #define LCD_RST   21
 #define LCD_BL    22
+#define LCD_W    240
+#define LCD_H    240
+#endif
 
 // Titulo del LCD. NEUTRO a proposito ("MSX" a secas, decision Albert 27/07):
 // este firmware es COMUN al MSXimus y al MSXnano — la version del core no es
@@ -29,7 +46,6 @@
 #define DEVICE_NAME    "MSX"     // 04/09: vuelve a ser NEUTRO. Se puso "MSXimus"
                                  // el 31/07, cuando cada maquina tenia su rama;
                                  // ahora hay UNA sola y sirve a las dos.
-#define TURBO_PIN 3       // GPIO libre del C6 (header) cableado al pin de turbo del FPGA
 
 // Colores RGB565
 #define COL_BLACK    0x0000
@@ -49,7 +65,11 @@ extern bool bSNTPOK;
 extern ESPConfig stDeviceConfiguration;      // .iGMT = offset horario en HORAS (lo setea el menu WiFi)
 extern volatile uint32_t g_lastUartMs;       // ultima actividad del enlace MSX<->ESP
 
+#ifdef ESP32_S3
+static Arduino_DataBus *lcd_bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI, GFX_NOT_DEFINED, HSPI);
+#else
 static Arduino_DataBus *lcd_bus = new Arduino_HWSPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI);
+#endif
 // ROTACION 2 = la 0 girada 180 grados. El modulo del MSXimus 60K monta MEJOR AL
 // REVES en la caja (Albert, 31/07).
 //
@@ -67,7 +87,49 @@ static Arduino_DataBus *lcd_bus = new Arduino_HWSPI(LCD_DC, LCD_CS, LCD_SCK, LCD
 // ⛔ MI RAZONAMIENTO ANTERIOR ERA FALSO, queda escrito para que no se repita:
 // "el panel es cuadrado 240x240, luego la geometria es identica en las cuatro
 // rotaciones". Lo cuadrado es el PANEL, no la RAM del controlador.
+#ifdef ESP32_S3
+static Arduino_GFX *gfx = new Arduino_ST7789(lcd_bus, LCD_RST, LCD_ROT, true, 170, 320, 35, 0, 35, 0);
+#else
 static Arduino_GFX *gfx = new Arduino_ST7789(lcd_bus, LCD_RST, 2, true, 240, 240, 0, 0, 0, 80);
+#endif
+// Geometria de la pantalla de estado (C6 240x240 / S3 320x170): lineas separadoras y zonas
+#ifdef ESP32_S3
+#define Y_SEP1   28
+#define Y_SEP2   94
+#define Y_SEP3  130
+#define WIFI_Y   32
+#define WIFI_H   60
+#define WIFI_L1  34
+#define WIFI_L2  54
+#define WIFI_L3  74
+#define TURBO_Y  98
+#define TURBO_H  28
+#define TURBO_TY 104
+#define BOT_Y   134
+#define BOT_H    36
+#define BOT_L1  136
+#define BOT_L2  153
+#define BOT_L3  153
+#define BOT_2LINES 1
+#else
+#define Y_SEP1   28
+#define Y_SEP2  108
+#define Y_SEP3  152
+#define WIFI_Y   32
+#define WIFI_H   74
+#define WIFI_L1  34
+#define WIFI_L2  58
+#define WIFI_L3  82
+#define TURBO_Y 114
+#define TURBO_H  32
+#define TURBO_TY 122
+#define BOT_Y   156
+#define BOT_H    84
+#define BOT_L1  160
+#define BOT_L2  190
+#define BOT_L3  220
+#define BOT_2LINES 0
+#endif
 static bool lcd_ok = false;
 
 static void fmtUptime(char *buf, uint32_t ms)
@@ -107,8 +169,8 @@ static void fmtUptime(char *buf, uint32_t ms)
 #define LOGO_MS       3000        // cuanto se ve en total, animacion incluida
 #define LOGO_FPS_MS   25          // no repintar mas rapido que esto
 
-static const int16_t LOGO_BX = (240 - LOGO_BOX_W) / 2;
-static const int16_t LOGO_BY = (240 - LOGO_BOX_H) / 2;
+static const int16_t LOGO_BX = (LCD_W - LOGO_BOX_W) / 2;
+static const int16_t LOGO_BY = (LCD_H - LOGO_BOX_H) / 2;
 static const int16_t LOGO_OX = (LOGO_BOX_W - LOGO_MSX_W) / 2;   // dentro de la caja
 static const int16_t LOGO_OY = (LOGO_BOX_H - LOGO_MSX_H) / 2;
 
@@ -171,9 +233,9 @@ static void drawChrome()
     gfx->setTextSize(2);
     gfx->setCursor(6, 6);
     gfx->print(DEVICE_NAME);
-    gfx->drawFastHLine(0, 28, 240, COL_DARKGREY);
-    gfx->drawFastHLine(0, 108, 240, COL_DARKGREY);
-    gfx->drawFastHLine(0, 152, 240, COL_DARKGREY);
+    gfx->drawFastHLine(0, Y_SEP1, LCD_W, COL_DARKGREY);
+    gfx->drawFastHLine(0, Y_SEP2, LCD_W, COL_DARKGREY);
+    gfx->drawFastHLine(0, Y_SEP3, LCD_W, COL_DARKGREY);
 }
 
 void displaySetup()
@@ -232,8 +294,8 @@ void displayTask()
         int8_t act = (now - g_lastUartMs < 250) ? 1 : 0;   // trafico UART reciente
         if (act != act_last) {
             act_last = act;
-            gfx->fillCircle(228, 13, 6, act ? COL_GREEN : COL_DGREY);
-            gfx->drawCircle(228, 13, 6, COL_DARKGREY);
+            gfx->fillCircle(LCD_W - 12, 13, 6, act ? COL_GREEN : COL_DGREY);
+            gfx->drawCircle(LCD_W - 12, 13, 6, COL_DARKGREY);
         }
     }
 
@@ -251,16 +313,16 @@ void displayTask()
 
         if (!((int8_t)conn == last_conn && ssid == last_ssid && rssi == last_rssi)) {
             last_conn = conn; last_ssid = ssid; last_rssi = rssi;
-            gfx->fillRect(0, 32, 240, 74, COL_BLACK);      // zona WiFi (y32..106)
+            gfx->fillRect(0, WIFI_Y, LCD_W, WIFI_H, COL_BLACK);      // zona WiFi
             gfx->setTextSize(2);
             if (conn) {
-                gfx->setTextColor(COL_GREEN); gfx->setCursor(6, 34); gfx->println("Conectado");
+                gfx->setTextColor(COL_GREEN); gfx->setCursor(6, WIFI_L1); gfx->println("Conectado");
                 gfx->setTextColor(COL_WHITE);
-                gfx->setCursor(6, 58); gfx->print("SSID:"); gfx->println(ssid);
-                gfx->setCursor(6, 82); gfx->print("RSSI:"); gfx->print(rssi); gfx->println("dBm");
+                gfx->setCursor(6, WIFI_L2); gfx->print("SSID:"); gfx->println(ssid);
+                gfx->setCursor(6, WIFI_L3); gfx->print("RSSI:"); gfx->print(rssi); gfx->println("dBm");
             } else {
-                gfx->setTextColor(COL_RED);    gfx->setCursor(6, 34); gfx->println("Sin WiFi");
-                gfx->setTextColor(COL_DARKGREY); gfx->setCursor(6, 70); gfx->println("Pulsa W en el menu");
+                gfx->setTextColor(COL_RED);    gfx->setCursor(6, WIFI_L1); gfx->println("Sin WiFi");
+                gfx->setTextColor(COL_DARKGREY); gfx->setCursor(6, WIFI_L3); gfx->println("Pulsa W en el menu");
             }
         }
     }
@@ -277,13 +339,13 @@ void displayTask()
         if (turbo != last_turbo) {
             last_turbo = turbo;
             if (turbo) {
-                gfx->fillRect(6, 114, 228, 32, COL_ORANGE);
+                gfx->fillRect(6, TURBO_Y, LCD_W - 12, TURBO_H, COL_ORANGE);
                 gfx->setTextColor(COL_BLACK);
-                gfx->setTextSize(2); gfx->setCursor(16, 122); gfx->print("TURBO 5.37MHz");
+                gfx->setTextSize(2); gfx->setCursor(16, TURBO_TY); gfx->print("TURBO 5.37MHz");
             } else {
-                gfx->fillRect(6, 114, 228, 32, COL_DGREY);
+                gfx->fillRect(6, TURBO_Y, LCD_W - 12, TURBO_H, COL_DGREY);
                 gfx->setTextColor(COL_DGREEN);
-                gfx->setTextSize(2); gfx->setCursor(16, 122); gfx->print("Normal 3.58MHz");
+                gfx->setTextSize(2); gfx->setCursor(16, TURBO_TY); gfx->print("Normal 3.58MHz");
             }
         }
         }
@@ -296,13 +358,17 @@ void displayTask()
         char up[12]; fmtUptime(up, now);
         float temp = temperatureRead();
 
-        gfx->fillRect(0, 156, 240, 84, COL_BLACK);   // zona bajo la barra de turbo (y156..240)
-        gfx->setTextSize(2);                          // el doble de grande; 3 lineas repartidas
+        gfx->fillRect(0, BOT_Y, LCD_W, BOT_H, COL_BLACK);   // zona bajo la barra de turbo
+        gfx->setTextSize(2);                          // el doble de grande; 3 lineas repartidas (2 en la S3)
         gfx->setTextColor(COL_WHITE);
-        gfx->setCursor(6, 160); gfx->print("Uptime "); gfx->println(up);
-        gfx->setCursor(6, 190); gfx->print("Temp ");   gfx->print(temp, 0); gfx->println(" C");
+#if BOT_2LINES
+        gfx->setCursor(6, BOT_L1); gfx->print("Up "); gfx->print(up); gfx->print("  "); gfx->print(temp, 0); gfx->print(" C");
+#else
+        gfx->setCursor(6, BOT_L1); gfx->print("Uptime "); gfx->println(up);
+        gfx->setCursor(6, BOT_L2); gfx->print("Temp ");   gfx->print(temp, 0); gfx->println(" C");
+#endif
         // Reloj: hora REAL del sistema (SNTP en background al conectar WiFi), sin depender de bSNTPOK.
-        gfx->setCursor(6, 220);
+        gfx->setCursor(6, BOT_L3);
         {
             time_t tnow = time(nullptr);
             if (tnow > 1700000000) {   // epoch > 2023-11 => SNTP ya sincronizo, hora valida

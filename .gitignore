@@ -11,3 +11,4 @@ host_test/test_screens3
 host_test/test_xinput
 host_test/verify
 host_test/verify_catalog
+build_s3/

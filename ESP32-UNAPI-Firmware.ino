@@ -351,20 +351,20 @@ void SendResponse (unsigned char ucCmd, unsigned char ucResponse, unsigned int u
   ucLastResponse = ucResponse;
   uiLastDataSize = uiDataSize;
   ucLastData = ucData;
-  Serial.write(ucCmd);
-  Serial.write(ucResponse);
-  Serial.write((uint8_t)((uiDataSize>>8)&0xff));
-  Serial.write((uint8_t)(uiDataSize&0xff));
+  MSXLINK.write(ucCmd);
+  MSXLINK.write(ucResponse);
+  MSXLINK.write((uint8_t)((uiDataSize>>8)&0xff));
+  MSXLINK.write((uint8_t)(uiDataSize&0xff));
   if (uiDataSize)
-    Serial.write(ucData,uiDataSize);
+    MSXLINK.write(ucData,uiDataSize);
 }
 
 void SendQuickResponse (unsigned char ucCmd, unsigned char ucResponse) {
   ucReceivedCommand = QUICK_COMMAND;
   ucLastCmd = ucCmd;
   ucLastResponse = ucResponse;
-  Serial.write(ucCmd);
-  Serial.write(ucResponse);
+  MSXLINK.write(ucCmd);
+  MSXLINK.write(ucResponse);
 }
 
 void saveFileConfig() {
@@ -453,47 +453,52 @@ byte checkOpenConnections() {
 }
 
 void setUartSpeed(){
-  Serial.flush();
+  MSXLINK.flush();
   switch (stDeviceConfiguration.ucBaudRate) {
     case BR9600:
-      Serial.begin(9600);
+      MSXLINK_BEGIN(9600);
       break;
     case BR19200:
-      Serial.begin(19200);
+      MSXLINK_BEGIN(19200);
       break;
     case BR57600:
-      Serial.begin(57600);
+      MSXLINK_BEGIN(57600);
       break;
     case BR115200:
-      Serial.begin(115200);
+      MSXLINK_BEGIN(115200);
       break;
     case BR230400:
-      Serial.begin(230400);
+      MSXLINK_BEGIN(230400);
       break;
     case BR460800:
-      Serial.begin(460800);
+      MSXLINK_BEGIN(460800);
       break;
     case BR921600:
-      Serial.begin(921600);
+      MSXLINK_BEGIN(921600);
       break;
     case BR859372:
-      Serial.begin(859372);
+      MSXLINK_BEGIN(859372);
       break;
   }
 }
 
 void setup() {
+#ifdef HAVE_CONSOLE
+  Serial.begin(115200);                 // CH340 del USB-C: consola
+  Serial.println(String("\nMSX companion " FIRMWARETYPE ": enlace MSXLINK GPIO RX=") + MSXLINK_RX_PIN
+                 + " TX=" + MSXLINK_TX_PIN + ", turbo GPIO" + TURBO_PIN);
+#endif
   WiFi.persistent(true);
   EEPROM.begin(32);
   validateConfigFile();
-  Serial.setRxBufferSize(2148);
-  Serial.setTimeout(1);
+  MSXLINK.setRxBufferSize(2148);
+  MSXLINK.setTimeout(1);
   setUartSpeed();
-  Serial.print("TCP-IP SSH UNAPI ESP32 v");
-  Serial.print(chVer);
-  Serial.print(" ");
-  Serial.println(FIRMWARETYPE);
-  Serial.println("(c) 2019-2026 Oduvaldo Pavan Junior - ducasp@gmail.com");
+  MSXLINK.print("TCP-IP SSH UNAPI ESP32 v");
+  MSXLINK.print(chVer);
+  MSXLINK.print(" ");
+  MSXLINK.println(FIRMWARETYPE);
+  MSXLINK.println("(c) 2019-2026 Oduvaldo Pavan Junior - ducasp@gmail.com");
   displaySetup();               // <-- pantalla de estado WiFi (Display.ino, anadido para MSXnano)
   longReadyTimeOut = 0;
   btReadyRetries = 3;
@@ -553,7 +558,7 @@ void setup() {
   configTime(0,0, "pool.ntp.org");
   CacheCertificates();
   libssh_begin();
-  Serial.println("Ready");
+  MSXLINK.println("Ready");
 }
 
 void DisableRadio () {
@@ -1990,7 +1995,7 @@ void received_data_parser () {
   {
     case RX_PARSER_IDLE:
       //Ok, so first let's check if it is a valid command
-      if (Serial.readBytes(&btCommand,1) == 1)
+      if (MSXLINK.readBytes(&btCommand,1) == 1)
       {
         btReceivedCommand = true;
         if ((btCommand!=CUSTOM_F_RELEASECONNECTION) && (btCommand!=CUSTOM_F_RESET) && (!bWiFiOn) && (btCommand!=CUSTOM_F_QUERY) && (stDeviceConfiguration.ucAutoClock!=3))
@@ -2022,7 +2027,7 @@ void received_data_parser () {
           break;
           case  CUSTOM_F_WARMBOOT:
             WarmBoot();
-            Serial.println("Ready");
+            MSXLINK.println("Ready");
           break;
           case  CUSTOM_F_GETBOARD:
             SendResponse (CUSTOM_F_GETBOARD, UNAPI_ERR_OK, sizeof(FIRMWARETYPE), (unsigned char*)FIRMWARETYPE);
@@ -2077,7 +2082,7 @@ void received_data_parser () {
               {
                 SendQuickResponse(btCommand,UNAPI_ERR_OK);
                 // On ESP32 - C6 if not waiting a little, the response sent is corrupted or not even sent
-                Serial.flush();
+                MSXLINK.flush();
                 delay(1000);
                 bSerialUpdateInProgress = false;
                 ESP.restart();
@@ -2086,7 +2091,7 @@ void received_data_parser () {
           break;
           //Reset?
           case CUSTOM_F_RESET:
-            Serial.print("R0");
+            MSXLINK.print("R0");
             if (!bSerialUpdateInProgress)
               ESP.restart();
             break;
@@ -2102,7 +2107,7 @@ void received_data_parser () {
             break;
           //Query?
           case CUSTOM_F_QUERY:
-            Serial.print("OK");
+            MSXLINK.print("OK");
             break;
           case CUSTOM_F_GET_DATETIME:
             {
@@ -2189,9 +2194,9 @@ void received_data_parser () {
             }
             break;
           case CUSTOM_F_GET_VER:
-            Serial.write(CUSTOM_F_GET_VER);
-            Serial.write(chVer[0]-'0');
-            Serial.write(chVer[2]-'0');
+            MSXLINK.write(CUSTOM_F_GET_VER);
+            MSXLINK.write(chVer[0]-'0');
+            MSXLINK.write(chVer[2]-'0');
             break;
           case CUSTOM_F_SCAN:
             wl_status_t stScan;
@@ -2207,29 +2212,29 @@ void received_data_parser () {
             break;
           case CUSTOM_F_SCAN_R:
             iAPCount = WiFi.scanComplete();
-            Serial.write('s');
+            MSXLINK.write('s');
             if (iAPCount>=0)
             {
               bScanReconnect = true;
-              Serial.write(0);
-              Serial.write((unsigned char)iAPCount); //count of APs
+              MSXLINK.write(0);
+              MSXLINK.write((unsigned char)iAPCount); //count of APs
               if (iAPCount>0)
               {
                 for (int iScanRLoop = 0; iScanRLoop<iAPCount; iScanRLoop++)
                 {
-                  Serial.printf("%s",WiFi.SSID(iScanRLoop).c_str());
-                  Serial.write(0); //Terminate SSID
-                  Serial.write(WiFi.encryptionType(iScanRLoop) == WIFI_AUTH_OPEN ? 'O' : 'E');
+                  MSXLINK.printf("%s",WiFi.SSID(iScanRLoop).c_str());
+                  MSXLINK.write(0); //Terminate SSID
+                  MSXLINK.write(WiFi.encryptionType(iScanRLoop) == WIFI_AUTH_OPEN ? 'O' : 'E');
                 }
               }
             }
             else if (iAPCount == WIFI_SCAN_RUNNING)
             {
-              Serial.write(UNAPI_ERR_NO_DATA); //no data yet
+              MSXLINK.write(UNAPI_ERR_NO_DATA); //no data yet
             }
             else {
               bScanReconnect = true;
-              Serial.write(UNAPI_ERR_NO_NETWORK); //no AP found found
+              MSXLINK.write(UNAPI_ERR_NO_NETWORK); //no AP found found
             }
             if (bScanReconnect && bScanReconnectNeeded) {
               WiFi.mode(WIFI_STA);
@@ -2245,7 +2250,7 @@ void received_data_parser () {
           case CUSTOM_F_TURN_RS232_OFF:
             // Note: it won't be possible to restore communications, only through power cycle or physical reset
             SendQuickResponse(btCommand,UNAPI_ERR_OK);
-            Serial.end();
+            MSXLINK.end();
             break;
           case CUSTOM_F_CLEAR_AP:
             WiFi.disconnect(false, true);
@@ -2321,7 +2326,7 @@ void received_data_parser () {
     break;
 
     case RX_PARSER_WAIT_DATA_SIZE:
-      if (Serial.readBytes(&btTmp,1) == 1)
+      if (MSXLINK.readBytes(&btTmp,1) == 1)
       {
         if (btCmdInternalStep == 0)
         {
@@ -2345,10 +2350,10 @@ void received_data_parser () {
     break;
 
     case RX_PARSER_GET_DATA:
-      uiTmp = Serial.available();
+      uiTmp = MSXLINK.available();
       if (uiTmp > uiCmdDataRemaining)
         uiTmp = uiCmdDataRemaining;
-      uiTmp = Serial.readBytes(&btCommandData[uiCmdDataLen - uiCmdDataRemaining],uiTmp);
+      uiTmp = MSXLINK.readBytes(&btCommandData[uiCmdDataLen - uiCmdDataRemaining],uiTmp);
       uiCmdDataRemaining -= uiTmp;
       if (uiCmdDataRemaining == 0)
         btState = RX_PARSER_PROCCESS_CMD;
@@ -2744,10 +2749,10 @@ proccesscmd:
             SendResponse(btCommand,UNAPI_ERR_INV_PARAM,0,0);
           else
           {
-            Serial.write(btCommand);
-            Serial.write(UNAPI_ERR_OK);
-            Serial.write(0);
-            Serial.write(6);
+            MSXLINK.write(btCommand);
+            MSXLINK.write(UNAPI_ERR_OK);
+            MSXLINK.write(0);
+            MSXLINK.write(6);
             // Capability flags ENABLED:
             // 0 - PTY
             // 3 - RAW
@@ -2758,12 +2763,12 @@ proccesscmd:
             // 12 - Support non ANSI code filtering on PTY
             // 13 - Host key verification (SSH_ADD_KNOWN_HOST)
             // 14 - Support Key Import/Export (SSH_KEY_IMPORT, SSH_KEY_EXPORT)
-            Serial.write(B00001001); //flags LSB
-            Serial.write(B01111111); //flags MSB (bits 10 and 14 now set)
-            Serial.write(4); //Max 4 simultaneous SSH conns
-            Serial.write(4 - checkOpenConnections()); //Free SSH conns
-            Serial.write(0x00); //DE LSB = 2048 max data per call
-            Serial.write(0x08); //DE MSB = 2048
+            MSXLINK.write(B00001001); //flags LSB
+            MSXLINK.write(B01111111); //flags MSB (bits 10 and 14 now set)
+            MSXLINK.write(4); //Max 4 simultaneous SSH conns
+            MSXLINK.write(4 - checkOpenConnections()); //Free SSH conns
+            MSXLINK.write(0x00); //DE LSB = 2048 max data per call
+            MSXLINK.write(0x08); //DE MSB = 2048
           }
         break;
         case TCPIP_GET_CAPAB:
@@ -2771,13 +2776,13 @@ proccesscmd:
             SendResponse(btCommand,UNAPI_ERR_INV_PARAM,0,0);
           else
           {
-            Serial.write(btCommand);
-            Serial.write(UNAPI_ERR_OK);
-            Serial.write(0);
+            MSXLINK.write(btCommand);
+            MSXLINK.write(UNAPI_ERR_OK);
+            MSXLINK.write(0);
             switch (btCommandData[0])
             {
               case TCPIP_GET_CAPAB_FLAGS:
-                Serial.write(5);
+                MSXLINK.write(5);
                 // Capability flags ENABLED:
                 // 2 - Resolve host names by querying a DNS server
                 // 3 - Open TCP connections in active mode
@@ -2797,43 +2802,43 @@ proccesscmd:
                 //12 - Explicitly set the TTL and TOS for outgoing datagrams
                 //13 - Explicitly set the automatic reply to PINGs on or off 
                 //15 - Get the TTL and ToS for outgoing datagrams
-                Serial.write(B00101100); //flags LSB
-                Serial.write(B01000100); //flags MSB
+                MSXLINK.write(B00101100); //flags LSB
+                MSXLINK.write(B01000100); //flags MSB
                 // Features flags ENABLED:
                 // 1 - Physical link is wireless
                 // 2 - Connection pool is shared by TCP, UDP and raw IP
                 // 4 - The TCP/IP handling code is assisted by external hardware
                 // 7 - IP datagram fragmentation is supported
-                Serial.write(B10010110); //flags LSB
+                MSXLINK.write(B10010110); //flags LSB
                 // 10 TCPIP_DNS_Q is a blocking operation
                 // 11 TCPIP_TCP_OPEN is a blocking operation
                 // 12 The server certificate can be verified when opening a TCP connection with TLS in TCPIP_TCP_OPEN
-                Serial.write(B00011100); //flags MSB
+                MSXLINK.write(B00011100); //flags MSB
                 // Link level - 4 - WiFi
-                Serial.write(4);
+                MSXLINK.write(4);
               break;
               case TCPIP_GET_CAPAB_CONN:
-                Serial.write(6);
-                Serial.write(4); //Max 4 simultaneous TCP conns
-                Serial.write(4); //Max 4 simultaneous UDP conns
-                Serial.write(4 - checkOpenConnections()); //Free TCP conns
-                Serial.write(4 - checkOpenConnections()); //Free UDP conns
-                Serial.write(0); //Raw TCP not supported
-                Serial.write(0); //Raw TCP not supported
+                MSXLINK.write(6);
+                MSXLINK.write(4); //Max 4 simultaneous TCP conns
+                MSXLINK.write(4); //Max 4 simultaneous UDP conns
+                MSXLINK.write(4 - checkOpenConnections()); //Free TCP conns
+                MSXLINK.write(4 - checkOpenConnections()); //Free UDP conns
+                MSXLINK.write(0); //Raw TCP not supported
+                MSXLINK.write(0); //Raw TCP not supported
               break;
               case TCPIP_GET_CAPAB_DGRAM:
-                Serial.write(4);
+                MSXLINK.write(4);
                 btTmp = 1500 & 0xff;
-                Serial.write(btTmp); // LSB max incoming dg size
+                MSXLINK.write(btTmp); // LSB max incoming dg size
                 btTmp = (1500 >> 8) & 0xff;
-                Serial.write(btTmp); // MSB max incoming dg size
+                MSXLINK.write(btTmp); // MSB max incoming dg size
                 btTmp = 2048 & 0xff;
-                Serial.write(btTmp); // LSB max outgoing dg size
+                MSXLINK.write(btTmp); // LSB max outgoing dg size
                 btTmp = (2048 >> 8) & 0xff;
-                Serial.write(btTmp); // MSB max outgoing dg size
+                MSXLINK.write(btTmp); // MSB max outgoing dg size
               break;
               case TCPIP_GET_SECONDARY_CAPAB_FLAGS:
-              Serial.write(5);
+              MSXLINK.write(5);
               //Secondary Capabilities enabled:
               //Bit 0: Automatically obtain the local IP address, subnet mask and default gateway, by using DHCP or an equivalent protocol                           
               //Bit 1: Automatically obtain the IP addresses of the DNS servers, by using DHCP or an equivalent protocol
@@ -2847,13 +2852,13 @@ proccesscmd:
               //Bit 3: Manually set the peer IP address
               //Bit 9: Use TLS in TCP passive connections
               //Bits 11-15: Unused
-              Serial.write(B11110111); //flags LSB
-              Serial.write(B00000001); //flags MSB (bit 8 + bit 10)
+              MSXLINK.write(B11110111); //flags LSB
+              MSXLINK.write(B00000001); //flags MSB (bit 8 + bit 10)
               // Secondary features flags currently not defined, all 0
-              Serial.write(0);
-              Serial.write(0);
+              MSXLINK.write(0);
+              MSXLINK.write(0);
               // Unused, left to make driver easier / simpler
-              Serial.write(0);
+              MSXLINK.write(0);
               break;
             }
           }
@@ -3875,7 +3880,7 @@ void loop() {
     DisableRadio();
   }
 
-  if (Serial.available()) {
+  if (MSXLINK.available()) {
     g_lastUartMs = millis();          // actividad del enlace MSX (indicador de la pantalla)
     received_data_parser();
   }
@@ -3886,7 +3891,7 @@ void loop() {
     {
       if (longReadyTimeOut<millis())
       {
-        Serial.println("Ready");
+        MSXLINK.println("Ready");
         longReadyTimeOut = 0;
         --btReadyRetries;
       }

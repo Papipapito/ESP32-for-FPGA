@@ -56,9 +56,11 @@ enum SupportedBaudRates {
 };
 
 //Uncomment ONLY the ESP Model you are targetting
+// 17/09/2026: la placa se elige desde la linea de ordenes (arduino-cli ... compiler.cpp.extra_flags=-DESP32_S3);
+// sin nada es el C6 (Waveshare ESP32-C6-LCD-1.3). ESP32_S3 = ESP32-1732S019 (S3 + LCD 1.9" 170x320).
+#if !defined(ESP32_S3) && !defined(ESP32_WROOM) && !defined(ESP32_C6)
 #define ESP32_C6
-//#define ESP32_S3
-//#define ESP32_WROOM
+#endif
 
 //Choose the default baud rate
 //Notice that if replacing a legacy ESP-01 on MSX FPGA or MSX PICO, the default is 859372 for it
@@ -73,7 +75,11 @@ enum SupportedBaudRates {
 //Uncomment ONLY the Flash Size you are targetting
 //#define FLASH_8M
 //#define FLASH_16M
+#ifdef ESP32_S3
+#define FLASH_16M           // ESP32-1732S019 = modulo N16R8 (16 MB; la tabla partitions.csv del sketch usa 4 MB)
+#else
 #define FLASH_4M            // Waveshare ESP32-C6-LCD-1.3 = 4MB (particion Huge APP No-OTA en Arduino IDE)
+#endif
 
 #ifdef ESP32_S3
   #ifdef FLASH_8M
@@ -103,6 +109,29 @@ enum SupportedBaudRates {
   #ifdef FLASH_16M
     #define FIRMWARETYPE "UN32WR16"
   #endif
+#endif
+
+// ======================== ENLACE CON EL FPGA (MSX <-> ESP) ========================
+// El sketch habla con el FPGA por MSXLINK; en el C6 es el UART0 (Serial, pines 16/17 de la placa).
+// En la ESP32-1732S019 el UART0 (GPIO43/44) es del CH340 del USB-C, asi que el enlace va por el
+// UART1 en dos GPIO del header P2 y el Serial queda libre como consola de depuracion (115200).
+//   ZYNQ MINI (CAM1)         ESP32-1732S019 (header P2, de arriba abajo: 2 42 41 40 39 38 45 48 47 21 GND 5V)
+//   26 W16 esp_rx_i   <----  GPIO40 (TX del ESP)
+//   28 R18 esp_tx_o   ---->  GPIO39 (RX del ESP)
+//   30 P19 esp_turbo  ---->  GPIO41 (entrada, pull-down)
+//   37/38 GND         -----  GND (P2, penultimo por abajo)
+//   Alimentacion: el USB-C de la S3 (a un USB-A de la Zynq o a un cargador). NUNCA unir los 3V3.
+#ifdef ESP32_S3
+  #define MSXLINK          Serial1
+  #define MSXLINK_RX_PIN   39
+  #define MSXLINK_TX_PIN   40
+  #define MSXLINK_BEGIN(b) Serial1.begin((b), SERIAL_8N1, MSXLINK_RX_PIN, MSXLINK_TX_PIN)
+  #define TURBO_PIN        41
+  #define HAVE_CONSOLE     1     // Serial = CH340 (USB-C): logs a 115200
+#else
+  #define MSXLINK          Serial
+  #define MSXLINK_BEGIN(b) Serial.begin(b)
+  #define TURBO_PIN        3     // GPIO libre del C6 (header) cableado al pin de turbo del FPGA
 #endif
 
 // ======================== ONBOARD WIFI-CONNECTED LED ========================
