@@ -155,6 +155,27 @@ Tres cosas que cuestan compilaciones si se olvidan:
 Core de Arduino para ESP32: **3.3.10**. `ESP32BOARDS.h` ya trae `#define ESP32_C6`
 y `FLASH_4M`; no hay que tocar nada.
 
+### ESP32-1732S019 (S3 + LCD), el companion de la Zynq
+
+La placa se elige desde la línea de órdenes (`-DESP32_S3`, ver `ESP32BOARDS.h`). Dos
+manías de `arduino-cli`: la carpeta del sketch tiene que llamarse como el `.ino`
+(`ESP32-UNAPI-Firmware`, no `esp32`: copia o enlaza la carpeta con ese nombre) y el
+`partitions.csv` del sketch manda sobre el esquema del FQBN.
+
+```powershell
+& "C:\Users\alber\AppData\Local\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" compile --upload -p COM13 --fqbn "esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=default,UploadMode=default,FlashMode=qio,FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB" --build-property "compiler.cpp.extra_flags=-DESP32_S3" "C:\ruta\ESP32-UNAPI-Firmware"
+```
+
+### Cinta web (`TsxWeb.ino`, Z1.2)
+
+El File-Hunter del menú pide también cintas TSX de tsx.eslamejor.com, que no tiene
+API: las sirve el propio ESP. El menú resuelve `tsx.msximus`, el DNS del UNAPI lo
+contesta con `127.0.0.1` y un `WiFiServer` local en el puerto 80 responde como
+`MSXnano.php` (lista en el formato del File-Hunter y descarga HTTPS del `.tsx`) desde
+un hilo aparte. El catálogo va en flash (`tsxcat.h`, ~2500 cintas con tamaño, CRC y
+orden de carga) y lo genera en el PC `tools/tsxcat_gen.py` a partir de la web; para
+actualizarlo: `python esp32/tools/tsxcat_gen.py --out esp32/tsxcat.h` y recompilar.
+
 Alternativa sin Arduino, con el binario fusionado que deja la compilación:
 
 ```powershell

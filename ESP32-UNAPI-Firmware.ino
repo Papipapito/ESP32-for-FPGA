@@ -2998,6 +2998,12 @@ proccesscmd:
   
               if ((ucDQNflags&2)&&(!ucIsIp))
                 SendResponse(btCommand,UNAPI_ERR_INV_IP,0,0);
+              else if (!ucIsIp && tsxWebDnsHook((const char*)&btCommandData[1]))
+              {
+                // Cinta web (TsxWeb.ino): "tsx.msximus" = este mismo ESP por el loopback (servidor local en el 80)
+                uint8_t loBytes[4] = {127, 0, 0, 1};
+                SendResponse(btCommand, UNAPI_ERR_OK, 4, loBytes);
+              }
               else
               {
                 WaitConnectionIfNeeded();
@@ -3005,6 +3011,7 @@ proccesscmd:
                   SendResponse(btCommand,UNAPI_ERR_OK,4,&ucDirectIp[0]);
                 else
                 {
+                  Serial.printf("[dns] %s\n", (const char*)&btCommandData[1]);
                   if(WiFi.hostByName((const char*)&btCommandData[1],DNSQueryIP))
                   {
                     if (DNSQueryIP == IPAddress(0,0,0,0) || DNSQueryIP == IPAddress(255,255,255,255))
@@ -3029,6 +3036,13 @@ proccesscmd:
           else
           {
             btCommandData[uiCmdDataLen]=0; //zero terminate the DNS strings
+            if (tsxWebDnsHook((const char*)btCommandData))
+            {
+              // Cinta web (TsxWeb.ino): "tsx.msximus" = este mismo ESP por el loopback (servidor local en el 80)
+              uint8_t loBytes[4] = {127, 0, 0, 1};
+              SendResponse(btCommand, UNAPI_ERR_OK, 4, loBytes);
+              break;
+            }
             WaitConnectionIfNeeded();
             if(WiFi.hostByName((const char*)btCommandData,DNSQueryIP))
             {
@@ -3884,6 +3898,7 @@ void loop() {
     g_lastUartMs = millis();          // actividad del enlace MSX (indicador de la pantalla)
     received_data_parser();
   }
+  tsxWebPoll();                       // Cinta web (TsxWeb.ino): servidor local del catalogo de tsx.eslamejor
 
   if ((!btReceivedCommand)&&(btReadyRetries))
   {
