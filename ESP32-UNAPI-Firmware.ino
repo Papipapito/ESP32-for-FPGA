@@ -545,7 +545,11 @@ void setup() {
     // WPA2/WPA3 transition-mode APs, which is the most common cause of a
     // ~10-second 4-way handshake timeout when the password is otherwise correct.
     WiFi.setMinSecurity(WIFI_AUTH_WPA2_PSK);
+#ifdef WIFI_LOWPOWER
+    WiFi.setTxPower(WIFI_POWER_2dBm);   // build de emergencia (18/09): modulo con el regulador tocado, pico de la radio al minimo
+#else
     WiFi.setTxPower(WIFI_POWER_15dBm);
+#endif
     bWiFiOn = true;
     if (!stDeviceConfiguration.ucAlwaysOn)
       ScheduleTimeoutCheck();
