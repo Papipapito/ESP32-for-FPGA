@@ -170,11 +170,13 @@ manías de `arduino-cli`: la carpeta del sketch tiene que llamarse como el `.ino
 
 El File-Hunter del menú pide también cintas TSX de tsx.eslamejor.com, que no tiene
 API: las sirve el propio ESP. El menú resuelve `tsx.msximus`, el DNS del UNAPI lo
-contesta con `127.0.0.1` y un `WiFiServer` local en el puerto 80 responde como
-`MSXnano.php` (lista en el formato del File-Hunter y descarga HTTPS del `.tsx`) desde
-un hilo aparte. El catálogo va en flash (`tsxcat.h`, ~2500 cintas con tamaño, CRC y
-orden de carga) y lo genera en el PC `tools/tsxcat_gen.py` a partir de la web; para
-actualizarlo: `python esp32/tools/tsxcat_gen.py --out esp32/tsxcat.h` y recompilar.
+contesta con `127.0.0.1` y el `TCP_OPEN` a esa IP crea una conexión virtual (una
+subclase de `WiFiClient` sin socket) que responde como `MSXnano.php`: la lista en el
+formato del File-Hunter y la descarga del `.tsx`, que un hilo baja por HTTPS a la
+PSRAM mientras el menú la va leyendo. El catálogo va en flash (`tsxcat.h`, ~2500
+cintas con tamaño, CRC y orden de carga) y lo genera en el PC `tools/tsxcat_gen.py`
+a partir de la web; para actualizarlo: `python esp32/tools/tsxcat_gen.py --out
+esp32/tsxcat.h` y recompilar.
 
 Alternativa sin Arduino, con el binario fusionado que deja la compilación:
 

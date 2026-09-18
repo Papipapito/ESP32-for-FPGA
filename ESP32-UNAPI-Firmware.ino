@@ -3187,10 +3187,19 @@ proccesscmd:
                       if (btConnections[uiForHelper] == CONN_CLOSED)
                         break;
                     btCMDConnNumber = uiForHelper+1;
+                    if (tsxWebIsMagic(externalIP))
+                    {
+                      // Cinta web (TsxWeb.ino): 127.0.0.1 = conexion VIRTUAL servida por este mismo ESP (sin socket)
+                      ClientList[uiForHelper] = tsxWebNewClient();
+                      btCMDBeginRet = 1;
+                    }
+                    else
+                    {
                     ClientList[uiForHelper] = new WiFiClient();
                     ClientList[uiForHelper]->setNoDelay(!stDeviceConfiguration.ucNagle);
 
                     btCMDBeginRet = ClientList[uiForHelper]->connect(externalIP,uiCMDRemotePort,uiCMDLocalPort);
+                    }
                     if (btCMDBeginRet)
                     {
                       uiLocalPorts[uiForHelper] = ClientList[uiForHelper]->localPort();
