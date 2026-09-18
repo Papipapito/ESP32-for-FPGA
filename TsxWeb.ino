@@ -191,10 +191,8 @@ class TsxVirtualClient : public WiFiClient {
   }
   int available() override {
     if (!_open) return 0;
-    // PRUEBA 18/09: un socket real tarda cientos de microsegundos en contestar; la conexion virtual contesta en
-    // microsegundos y el menu recibia bytes de mas/menos (CRC MAL, lista con un tamano corrupto): posible carrera
-    // en el driver del MSX justo tras enviar la orden. Se retrasa la respuesta como lo haria un socket.
-    delay(2);
+    // (18/09: se probo un delay(2) aqui por si una respuesta instantanea perdia bytes en el enlace; no cambio nada:
+    //  los bytes de mas/menos eran el ESP32-1732S019 en brownout, ver LEEME. Sin retraso.)
     uint32_t a = _hlen - _hpos;
     if (_dl) a += g_dl.got - _bpos;
     if (_dl && (_nav < 8 || (_nav % 200) == 0)) Serial.printf("[tsxweb] available() -> %u (hdr %u/%u, bpos %u, got %u)\n", (unsigned)a, (unsigned)_hpos, (unsigned)_hlen, (unsigned)_bpos, (unsigned)g_dl.got);
