@@ -58,6 +58,13 @@ enum SupportedBaudRates {
 //Uncomment ONLY the ESP Model you are targetting
 // 17/09/2026: la placa se elige desde la linea de ordenes (arduino-cli ... compiler.cpp.extra_flags=-DESP32_S3);
 // sin nada es el C6 (Waveshare ESP32-C6-LCD-1.3). ESP32_S3 = ESP32-1732S019 (S3 + LCD 1.9" 170x320).
+// 01/10/2026: ESP32_S3_LCD169 = Waveshare ESP32-S3-LCD-1.69 (S3R8: 16 MB + 8 MB PSRAM, ST7789V2 240x280, USB-C nativo,
+// conector SH1.0 de 12 pines). Es un S3: implica ESP32_S3 y solo cambian los pines (aqui y en Display.ino).
+#ifdef ESP32_S3_LCD169
+  #ifndef ESP32_S3
+    #define ESP32_S3
+  #endif
+#endif
 #if !defined(ESP32_S3) && !defined(ESP32_WROOM) && !defined(ESP32_C6)
 #define ESP32_C6
 #endif
@@ -76,7 +83,7 @@ enum SupportedBaudRates {
 //#define FLASH_8M
 //#define FLASH_16M
 #ifdef ESP32_S3
-#define FLASH_16M           // ESP32-1732S019 = modulo N16R8 (16 MB; la tabla partitions.csv del sketch usa 4 MB)
+#define FLASH_16M           // ESP32-1732S019 = modulo N16R8; S3-LCD-1.69 = S3R8 + W25Q128 (16 MB las dos)
 #else
 #define FLASH_4M            // Waveshare ESP32-C6-LCD-1.3 = 4MB (particion Huge APP No-OTA en Arduino IDE)
 #endif
@@ -121,7 +128,23 @@ enum SupportedBaudRates {
 //   30 P19 esp_turbo  ---->  GPIO41 (entrada, pull-down)
 //   37/38 GND         -----  GND (P2, penultimo por abajo)
 //   Alimentacion: el USB-C de la S3 (a un USB-A de la Zynq o a un cargador). NUNCA unir los 3V3.
-#ifdef ESP32_S3
+// Waveshare ESP32-S3-LCD-1.69: el enlace va por el cable SH1.0 de 12 hilos que trae la placa (posicion 1 = el extremo
+// del conector lejos del USB-C; colores del dibujo de Waveshare). Esquema ESP32-S3-LCD-1.69 V2, conector P2.
+//   ZYNQ MINI (CAM1)  60K (J10)              S3-LCD-1.69 (cable)
+//   26 esp_rx_i       16 RX del FPGA  <----  pos 3 verde   GPIO16 (TX del ESP)
+//   28 esp_tx_o       14 TX del FPGA  ---->  pos 2 rojo    GPIO17 (RX del ESP)
+//   30 esp_turbo      18 TURBO        ---->  pos 1 negro   GPIO18 (entrada, pull-down)
+//   37/38 GND         12 GND          -----  pos 11 morado GND
+//   Sin conectar: pos 4-10 y sobre todo 10 azul (3,3 V, salida del regulador) y 12 gris (5 V = VBUS del USB-C).
+//   Alimentacion: SU USB-C (USB-A de la Zynq o cargador), una sola fuente. GPIO3 (pos 4) es de arranque: no se usa.
+#ifdef ESP32_S3_LCD169
+  #define MSXLINK          Serial1
+  #define MSXLINK_RX_PIN   17
+  #define MSXLINK_TX_PIN   16
+  #define MSXLINK_BEGIN(b) Serial1.begin((b), SERIAL_8N1, MSXLINK_RX_PIN, MSXLINK_TX_PIN)
+  #define TURBO_PIN        18
+  #define HAVE_CONSOLE     1     // Serial = UART0 (pos 8 naranja TX, pos 9 verde RX del cable): logs a 115200 si se cablean
+#elif defined(ESP32_S3)
   #define MSXLINK          Serial1
   #define MSXLINK_RX_PIN   39
   #define MSXLINK_TX_PIN   40

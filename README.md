@@ -166,6 +166,19 @@ manías de `arduino-cli`: la carpeta del sketch tiene que llamarse como el `.ino
 & "C:\Users\alber\AppData\Local\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" compile --upload -p COM13 --fqbn "esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=default,UploadMode=default,FlashMode=qio,FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB" --build-property "compiler.cpp.extra_flags=-DESP32_S3" "C:\ruta\ESP32-UNAPI-Firmware"
 ```
 
+### Waveshare ESP32-S3-LCD-1.69 (S3 + LCD 240×280), el companion de la Zynq desde el 01/10/2026
+
+Variante `-DESP32_S3_LCD169` (implica `ESP32_S3`): la misma pantalla de estado que la C6, repartida en 240×280 y
+apartada de las esquinas redondeadas del panel. Se conecta con el cable de 12 hilos que trae la placa (posición 1 =
+el extremo del conector lejos del USB-C): **negro de la posición 1 = GPIO18 turbo**, **rojo = GPIO17 RX del ESP**,
+**verde de la posición 3 = GPIO16 TX del ESP**, **morado = GND**. A la Zynq: CAM1 30 / 28 / 26 / 38; al 60K: J10
+18 / 14 / 16 / 12. El azul (3,3 V) y el gris (5 V) se quedan sin conectar; la placa se alimenta por su USB-C.
+Su USB-C es el USB nativo del S3 (en el PC sale como *Dispositivo serie USB*, VID 303A).
+
+```powershell
+& "C:\Users\alber\AppData\Local\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" compile --upload -p COM5 --fqbn "esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=default,UploadMode=default,FlashMode=qio,FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB" --build-property "compiler.cpp.extra_flags=-DESP32_S3 -DESP32_S3_LCD169" "C:\ruta\ESP32-UNAPI-Firmware"
+```
+
 ### Cinta web (`TsxWeb.ino`, Z1.2)
 
 El File-Hunter del menú pide también cintas TSX de tsx.eslamejor.com, que no tiene

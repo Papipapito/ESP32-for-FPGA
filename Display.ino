@@ -17,7 +17,21 @@
 #include "UNAPIESP.h"     // ESPConfig, FIRMWARETYPE (guarda de inclusion)
 #include "ESP32BOARDS.h"  // placa: pines del enlace y TURBO_PIN
 
-#ifdef ESP32_S3
+#if defined(ESP32_S3_LCD169)
+// Waveshare ESP32-S3-LCD-1.69: ST7789V2 240x280 IPS por SPI, vertical como la C6 pero 40 px mas alta. Pines del
+// esquema V2 (LCD_DC 4, CS 5, SCL 6, SDA 7, RST 8, BL 15 por el transistor Q1: activo alto). El controlador tiene
+// 240x320 de RAM y el panel usa 280 filas centradas: offset de 20 filas en las dos orientaciones.
+// 🚨 El panel tiene las ESQUINAS REDONDEADAS: nada pegado a las cuatro esquinas (margenes abajo).
+#define LCD_SCK    6
+#define LCD_MOSI   7
+#define LCD_CS     5
+#define LCD_DC     4
+#define LCD_RST    8
+#define LCD_BL    15
+#define LCD_W    240
+#define LCD_H    280
+#define LCD_ROT    0        // 0 = conector a la izquierda mirando la pantalla; 2 = girada 180
+#elif defined(ESP32_S3)
 // ESP32-1732S019: ST7789V 170x320 IPS por SPI (SPI2_HOST). Pines VERIFICADOS (BoardS3.h de agosto +
 // esquematico de Sunton): ninguno sale al header. Apaisada: 320 de ancho x 170 de alto, offset 35.
 #define LCD_SCK   12
@@ -65,7 +79,7 @@ extern bool bSNTPOK;
 extern ESPConfig stDeviceConfiguration;      // .iGMT = offset horario en HORAS (lo setea el menu WiFi)
 extern volatile uint32_t g_lastUartMs;       // ultima actividad del enlace MSX<->ESP
 
-#ifdef ESP32_S3
+#if defined(ESP32_S3)
 static Arduino_DataBus *lcd_bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI, GFX_NOT_DEFINED, HSPI);
 #else
 static Arduino_DataBus *lcd_bus = new Arduino_HWSPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI);
@@ -87,13 +101,38 @@ static Arduino_DataBus *lcd_bus = new Arduino_HWSPI(LCD_DC, LCD_CS, LCD_SCK, LCD
 // ⛔ MI RAZONAMIENTO ANTERIOR ERA FALSO, queda escrito para que no se repita:
 // "el panel es cuadrado 240x240, luego la geometria es identica en las cuatro
 // rotaciones". Lo cuadrado es el PANEL, no la RAM del controlador.
-#ifdef ESP32_S3
+#if defined(ESP32_S3_LCD169)
+static Arduino_GFX *gfx = new Arduino_ST7789(lcd_bus, LCD_RST, LCD_ROT, true, 240, 280, 0, 20, 0, 20);
+#elif defined(ESP32_S3)
 static Arduino_GFX *gfx = new Arduino_ST7789(lcd_bus, LCD_RST, LCD_ROT, true, 170, 320, 35, 0, 35, 0);
 #else
 static Arduino_GFX *gfx = new Arduino_ST7789(lcd_bus, LCD_RST, 2, true, 240, 240, 0, 0, 0, 80);
 #endif
-// Geometria de la pantalla de estado (C6 240x240 / S3 320x170): lineas separadoras y zonas
-#ifdef ESP32_S3
+// Geometria de la pantalla de estado (C6 240x240 / S3 320x170 / S3-LCD-1.69 240x280): lineas separadoras y zonas
+#if defined(ESP32_S3_LCD169)
+// lo mismo que la C6 con los 40 px de mas repartidos; titulo y punto de actividad apartados de las esquinas
+#define TITLE_X  20
+#define TITLE_Y  10
+#define ACT_X   (LCD_W - 26)
+#define ACT_Y    18
+#define Y_SEP1   34
+#define Y_SEP2  124
+#define Y_SEP3  172
+#define WIFI_Y   38
+#define WIFI_H   84
+#define WIFI_L1  42
+#define WIFI_L2  70
+#define WIFI_L3  98
+#define TURBO_Y 130
+#define TURBO_H  36
+#define TURBO_TY 140
+#define BOT_Y   176
+#define BOT_H   104
+#define BOT_L1  184
+#define BOT_L2  214
+#define BOT_L3  244
+#define BOT_2LINES 0
+#elif defined(ESP32_S3)
 #define Y_SEP1   28
 #define Y_SEP2   94
 #define Y_SEP3  130
@@ -129,6 +168,12 @@ static Arduino_GFX *gfx = new Arduino_ST7789(lcd_bus, LCD_RST, 2, true, 240, 240
 #define BOT_L2  190
 #define BOT_L3  220
 #define BOT_2LINES 0
+#endif
+#ifndef TITLE_X
+#define TITLE_X  6
+#define TITLE_Y  6
+#define ACT_X   (LCD_W - 12)
+#define ACT_Y    13
 #endif
 static bool lcd_ok = false;
 
@@ -231,7 +276,7 @@ static void drawChrome()
     gfx->fillScreen(COL_BLACK);
     gfx->setTextColor(COL_CYAN);
     gfx->setTextSize(2);
-    gfx->setCursor(6, 6);
+    gfx->setCursor(TITLE_X, TITLE_Y);
     gfx->print(DEVICE_NAME);
     gfx->drawFastHLine(0, Y_SEP1, LCD_W, COL_DARKGREY);
     gfx->drawFastHLine(0, Y_SEP2, LCD_W, COL_DARKGREY);
@@ -294,8 +339,8 @@ void displayTask()
         int8_t act = (now - g_lastUartMs < 250) ? 1 : 0;   // trafico UART reciente
         if (act != act_last) {
             act_last = act;
-            gfx->fillCircle(LCD_W - 12, 13, 6, act ? COL_GREEN : COL_DGREY);
-            gfx->drawCircle(LCD_W - 12, 13, 6, COL_DARKGREY);
+            gfx->fillCircle(ACT_X, ACT_Y, 6, act ? COL_GREEN : COL_DGREY);
+            gfx->drawCircle(ACT_X, ACT_Y, 6, COL_DARKGREY);
         }
     }
 
