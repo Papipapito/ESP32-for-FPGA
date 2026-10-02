@@ -63,6 +63,7 @@ v0.3
 #include <EEPROM.h>
 #include "HTTPClient.h"
 #include "mbedtls/md.h"
+#include "CaRaices.h"          // 02/10/2026: raices de serie para el TLS con validacion (tools/make_ca_raices.py)
 #include <base64.h>
 #include <esp_wifi.h>
 #include <lwip/sockets.h>
@@ -666,6 +667,9 @@ bool InitCertificates() {
 
 // Load CA certificates from FFat (FATFS)
 // Both cacert.pem and legacy certs.bin will work
+// 02/10/2026: sin ninguno de los dos, las raices de serie de CaRaices.h (Sectigo de msx.barcelona, Let's Encrypt,
+// Google/Cloudflare, DigiCert...). Antes, sin certificados en la FFat, toda conexion con validacion fallaba. El
+// mbedTLS de este core no mira las fechas (CONFIG_MBEDTLS_HAVE_TIME_DATE no esta): no depende del reloj.
 bool loadCACertForClient(WiFiClientSecure *client) {
   if (g_caPem != NULL && g_caPemLen > 0) {
     client->setCACert(g_caPem);
@@ -677,7 +681,8 @@ bool loadCACertForClient(WiFiClientSecure *client) {
     return true;
   }
 
-  return false;
+  client->setCACert(CA_RAICES);
+  return true;
 }
 
 bool IsActivePortInUse (unsigned int uiPort) {
