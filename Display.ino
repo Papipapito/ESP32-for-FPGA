@@ -1,8 +1,8 @@
 /*
- * Display.ino - Pantalla de estado (WiFi + Sistema + Turbo) para MSXimus/MSXnano en la
- * Waveshare ESP32-C6-LCD-1.3 (ST7789V2 240x240 SPI). Modulo AÑADIDO al firmware
- * UNAPI de ducasp. Arduino concatena los .ino: llamar displaySetup() en setup()
- * y displayTask() en loop() del .ino principal.
+ * Display.ino - Pantalla de estado (WiFi + Sistema + Turbo) para MSXimus/MSXnano.
+ * Soporta las Waveshare ESP32-C6-LCD-1.3 (240x240) y ESP32-C6-LCD-1.47
+ * (172x320, usada en horizontal). Arduino concatena los .ino: llamar
+ * displaySetup() en setup() y displayTask() en loop() del .ino principal.
  *
  * Libreria: "GFX Library for Arduino" (moononournation) -> Arduino_GFX.
  * PINES LCD: SCLK=7 MOSI=6 CS=14 DC=15 RST=21 BL=22 (no tocan UART 16/17).
@@ -17,27 +17,35 @@
 #include "UNAPIESP.h"     // ESPConfig, FIRMWARETYPE (guarda de inclusion)
 #include "ESP32BOARDS.h"  // placa: pines del enlace y TURBO_PIN
 
-#ifdef ESP32_S3
-// ESP32-1732S019: ST7789V 170x320 IPS por SPI (SPI2_HOST). Pines VERIFICADOS (BoardS3.h de agosto +
-// esquematico de Sunton): ninguno sale al header. Apaisada: 320 de ancho x 170 de alto, offset 35.
-#define LCD_SCK   12
-#define LCD_MOSI  13
-#define LCD_CS    10
-#define LCD_DC    11
-#define LCD_RST    1
-#define LCD_BL    14
-#define LCD_W    320
-#define LCD_H    170
-#define LCD_ROT    1        // 1 o 3 segun como se monte (3 = girada 180)
-#else
+// Las dos C6 usan exactamente el mismo bus y los mismos GPIO para el LCD.
 #define LCD_SCK   7
 #define LCD_MOSI  6
 #define LCD_CS    14
 #define LCD_DC    15
 #define LCD_RST   21
 #define LCD_BL    22
+
+#if defined(WAVESHARE_C6_LCD_147)
+// ST7789 172x320 con 34 columnas ocultas a cada lado. Se usa en horizontal
+// para conservar toda la informacion de la pantalla de estado.
+#ifndef LCD_ROTATION
+#define LCD_ROTATION 1       // 1 = USB a la derecha; compilar con 3 para girarla 180 grados
+#endif
+#define LCD_NATIVE_W 172
+#define LCD_NATIVE_H 320
+#define LCD_W        320
+#define LCD_H        172
+#define LCD_WIDE       1
+#define LCD_BL_DUTY   127     // <50 %: maximo recomendado por Waveshare para uso continuo
+#else
+#ifndef LCD_ROTATION
+#define LCD_ROTATION 2       // la 1,3" se monta invertida en la caja del MSXimus
+#endif
+#define LCD_NATIVE_W 240
+#define LCD_NATIVE_H 240
 #define LCD_W    240
 #define LCD_H    240
+#define LCD_BL_DUTY 255
 #endif
 
 // Titulo del LCD. NEUTRO a proposito ("MSX" a secas, decision Albert 27/07):
@@ -65,35 +73,20 @@ extern bool bSNTPOK;
 extern ESPConfig stDeviceConfiguration;      // .iGMT = offset horario en HORAS (lo setea el menu WiFi)
 extern volatile uint32_t g_lastUartMs;       // ultima actividad del enlace MSX<->ESP
 
-#ifdef ESP32_S3
-static Arduino_DataBus *lcd_bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI, GFX_NOT_DEFINED, HSPI);
-#else
 static Arduino_DataBus *lcd_bus = new Arduino_HWSPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI);
-#endif
-// ROTACION 2 = la 0 girada 180 grados. El modulo del MSXimus 60K monta MEJOR AL
-// REVES en la caja (Albert, 31/07).
-//
-// ⚠️ EL ULTIMO 80 NO ES OPCIONAL, Y ES EL ERROR CLASICO DE ESTOS PANELES.
-// El ST7789 tiene 240x320 de RAM y este panel solo usa 240 de esas 320 filas.
-// En rotacion 0 la ventana visible son las filas 0..239; al girar 180 grados el
-// controlador invierte y pasa a ser 80..319. Sin compensarlo, TODO el contenido
-// sube 80 px: se pierden el titulo y el bloque de WiFi por arriba, y por abajo
-// se ve RAM sin inicializar (basura). Medido en placa el 31/07.
-// Por eso va en ROW_OFFSET2 (el ultimo parametro), que es el offset de fila que
-// la libreria aplica SOLO a las rotaciones invertidas (2 y 3) — el de la
-// rotacion 0 se queda a 0 y esa sigue igual que siempre.
-// Orden de los cuatro: col_offset1, row_offset1, col_offset2, row_offset2.
-//
-// ⛔ MI RAZONAMIENTO ANTERIOR ERA FALSO, queda escrito para que no se repita:
-// "el panel es cuadrado 240x240, luego la geometria es identica en las cuatro
-// rotaciones". Lo cuadrado es el PANEL, no la RAM del controlador.
-#ifdef ESP32_S3
-static Arduino_GFX *gfx = new Arduino_ST7789(lcd_bus, LCD_RST, LCD_ROT, true, 170, 320, 35, 0, 35, 0);
+#if defined(WAVESHARE_C6_LCD_147)
+static Arduino_GFX *gfx = new Arduino_ST7789(
+    lcd_bus, LCD_RST, LCD_ROTATION, true, LCD_NATIVE_W, LCD_NATIVE_H,
+    34, 0, 34, 0);
 #else
-static Arduino_GFX *gfx = new Arduino_ST7789(lcd_bus, LCD_RST, 2, true, 240, 240, 0, 0, 0, 80);
+// El ST7789 tiene 240x320 de RAM y el panel cuadrado usa solo 240 filas. En
+// rotacion 2 hacen falta las 80 filas de offset finales; medido en placa.
+static Arduino_GFX *gfx = new Arduino_ST7789(
+    lcd_bus, LCD_RST, LCD_ROTATION, true, LCD_NATIVE_W, LCD_NATIVE_H,
+    0, 0, 0, 80);
 #endif
-// Geometria de la pantalla de estado (C6 240x240 / S3 320x170): lineas separadoras y zonas
-#ifdef ESP32_S3
+// Geometria de la pantalla de estado: cuadrada 240x240 o apaisada 320x172.
+#if defined(LCD_WIDE)
 #define Y_SEP1   28
 #define Y_SEP2   94
 #define Y_SEP3  130
@@ -106,10 +99,10 @@ static Arduino_GFX *gfx = new Arduino_ST7789(lcd_bus, LCD_RST, 2, true, 240, 240
 #define TURBO_H  28
 #define TURBO_TY 104
 #define BOT_Y   134
-#define BOT_H    36
+#define BOT_H    38
 #define BOT_L1  136
-#define BOT_L2  153
-#define BOT_L3  153
+#define BOT_L2  154
+#define BOT_L3  154
 #define BOT_2LINES 1
 #else
 #define Y_SEP1   28
@@ -241,11 +234,16 @@ static void drawChrome()
 void displaySetup()
 {
     pinMode(LCD_BL, OUTPUT);
-    digitalWrite(LCD_BL, HIGH);
+    digitalWrite(LCD_BL, LOW);             // evita el destello blanco durante el init
     pinMode(TURBO_PIN, INPUT_PULLDOWN);      // 0 si no esta cableado -> "Normal"
 
     if (!gfx->begin()) { lcd_ok = false; return; }
     lcd_ok = true;
+#if defined(WAVESHARE_C6_LCD_147)
+    analogWrite(LCD_BL, LCD_BL_DUTY);
+#else
+    digitalWrite(LCD_BL, HIGH);
+#endif
 
     gfx->fillScreen(COL_MSX_BLUE);
     logo_off  = logoOffset(0);
@@ -318,7 +316,10 @@ void displayTask()
             if (conn) {
                 gfx->setTextColor(COL_GREEN); gfx->setCursor(6, WIFI_L1); gfx->println("Conectado");
                 gfx->setTextColor(COL_WHITE);
-                gfx->setCursor(6, WIFI_L2); gfx->print("SSID:"); gfx->println(ssid);
+                const uint8_t ssidMax = ((LCD_W - 6) / 12) - 5; // ancho util a textSize(2), menos "SSID:"
+                String shownSsid = ssid;
+                if (shownSsid.length() > ssidMax) shownSsid = shownSsid.substring(0, ssidMax - 1) + "~";
+                gfx->setCursor(6, WIFI_L2); gfx->print("SSID:"); gfx->println(shownSsid);
                 gfx->setCursor(6, WIFI_L3); gfx->print("RSSI:"); gfx->print(rssi); gfx->println("dBm");
             } else {
                 gfx->setTextColor(COL_RED);    gfx->setCursor(6, WIFI_L1); gfx->println("Sin WiFi");
@@ -359,7 +360,7 @@ void displayTask()
         float temp = temperatureRead();
 
         gfx->fillRect(0, BOT_Y, LCD_W, BOT_H, COL_BLACK);   // zona bajo la barra de turbo
-        gfx->setTextSize(2);                          // el doble de grande; 3 lineas repartidas (2 en la S3)
+        gfx->setTextSize(2);                          // 3 lineas en 1,3"; 2 en la 1,47"
         gfx->setTextColor(COL_WHITE);
 #if BOT_2LINES
         gfx->setCursor(6, BOT_L1); gfx->print("Up "); gfx->print(up); gfx->print("  "); gfx->print(temp, 0); gfx->print(" C");

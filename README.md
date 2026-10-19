@@ -3,7 +3,7 @@
 Firmware del **companion ESP32-C6** para los cores MSX en FPGA de este proyecto:
 **MSXnano** (Tang Nano 20K) y **MSXimus** (Tang Console 60K).
 
-**Un solo código, una sola placa, las dos máquinas.**
+**Un solo código, dos placas C6, las dos máquinas.**
 
 ---
 
@@ -12,17 +12,25 @@ Firmware del **companion ESP32-C6** para los cores MSX en FPGA de este proyecto:
 | | |
 |---|---|
 | **WiFi / UNAPI** | Pila TCP/IP y TLS para el MSX, por UART a 859372 bps |
-| **Pantalla** | Logo de arranque y pantalla de estado: WiFi, turbo, reloj (240×240) |
+| **Pantalla** | Logo de arranque y pantalla de estado: WiFi, turbo y reloj (240×240 o 320×172) |
 | **Turbo** | Lee el GPIO que el FPGA sube en modo turbo y lo pinta |
 
-Y nada más. El módulo es la **Waveshare ESP32-C6-LCD-1.3** (ST7789V2 240×240
-SPI) y le unen al FPGA **tres cables** más la alimentación.
+Y nada más. Hay dos módulos compatibles, ambos con 4 MB de flash y ST7789 SPI:
+
+| Perfil | Panel | Selección |
+|---|---|---|
+| **Waveshare ESP32-C6-LCD-1.3** | 240×240 | predeterminado |
+| **Waveshare ESP32-C6-LCD-1.47** | 172×320, usada en horizontal (320×172) | `-DWAVESHARE_C6_LCD_147` |
+
+Las dos se conectan al FPGA con **tres cables** más alimentación y usan el mismo
+pinout de enlace. Solo cambia el binario por la geometría del LCD.
 
 ## El firmware NO sabe en qué máquina está
 
 Y no tiene por qué. MSXnano y MSXimus hablan el **mismo protocolo** con el ESP,
 usan los **mismos pines** y no hay ninguna función que tenga una y la otra no.
-El mismo binario vale para las dos: **no se elige proyecto en ningún sitio.**
+El mismo binario vale para MSXnano y MSXimus: **no se elige proyecto en ningún
+sitio**. Sí hay que compilar el perfil de pantalla que corresponda a la placa.
 
 Por eso el título del LCD es neutro — `DEVICE_NAME "MSX"` en `Display.ino` — y
 es el único punto de personalización que existe.
@@ -37,6 +45,9 @@ Fondo azul MSX y el logotipo **MSX armándose desde los dos lados**, como en el
 arranque de un MSX2 real: dos copias entran de lados opuestos, se cruzan, y
 donde coinciden queda blanco. Tarda 0,9 s en armarse y se ve 3 s en total.
 No bloquea nada: la pila WiFi arranca mientras tanto.
+
+El mismo logo se centra sin deformarse en ambos paneles. En la 1,47" cabe entero
+porque el firmware usa la pantalla en horizontal.
 
 ### Después: la pantalla de estado
 
@@ -56,6 +67,9 @@ No bloquea nada: la pila WiFi arranca mientras tanto.
  │ 18:42  11/09/26                │  hora local por SNTP
  └────────────────────────────────┘
 ```
+
+En la 1,47" la zona inferior se compacta en dos líneas para aprovechar sus 172
+píxeles de alto: tiempo/temperatura en una y reloj/fecha en otra.
 
 | Zona | Qué muestra | Se refresca |
 |---|---|---|
@@ -80,7 +94,7 @@ turbo.
 | **TLS** | Conexiones seguras con verificación contra un paquete de certificados CA que vive en la partición FFat (`certs.bin`) |
 | **SSH** | Cliente SSH completo según la especificación de ducasp: terminal PTY o RAW, autenticación por contraseña o clave, `known_hosts` en FFat |
 | **Configuración desde el MSX** | Buscar y unirse a redes, huso horario, reloj automático, actualizar firmware y certificados por HTTP. Es lo que abre la tecla **W** del menú de la BIOS |
-| **Enlace con el FPGA** | UART0 a 859372 bps, 8N1, 3,3 V. Identificador de placa `UN32C604` |
+| **Enlace con el FPGA** | UART0 a 859372 bps, 8N1, 3,3 V. Identificador `UN32C604` (1,3″) o `UN32C647` (1,47″) |
 | **Pantalla y turbo** | `Display.ino`: el logo, la pantalla de estado y la lectura del pin de turbo |
 
 Regla de oro heredada de ducasp: **nunca imprimir texto por `Serial`**. Esa UART
@@ -90,7 +104,7 @@ es la del FPGA y cualquier byte suelto corrompe el protocolo UNAPI.
 
 ## Pines y cableado
 
-### Lado del módulo (igual en las dos máquinas)
+### Lado del módulo (igual en las dos C6 y en las dos máquinas)
 
 Tiras de pines de la cara trasera, la del USB-C y la microSD:
 
@@ -102,9 +116,13 @@ Tiras de pines de la cara trasera, la del USB-C y la microSD:
 | **5V** | Alimentación | 5 V del FPGA (el módulo regula a 3,3 V) |
 | **GND** | Masa | GND |
 
-Serigrafía de las tiras: izquierda `23 · 20 · 17 · 16 · 13 · 12`, derecha
-`3 · 2 · 1 · 3V3 · GND · 5V`. La pantalla usa GPIOs internos (SCK 7, MOSI 6,
-CS 14, DC 15, RST 21, BL 22) que no salen a las tiras.
+En la placa de 1,3", la serigrafía de las tiras es: izquierda
+`23 · 20 · 17 · 16 · 13 · 12`, derecha `3 · 2 · 1 · 3V3 · GND · 5V`. En la
+1,47", TXD/RXD (GPIO16/17) y GPIO3 también salen al conector.
+
+El LCD usa los mismos pines en las dos placas: SCK 7, MOSI 6, CS 14, DC 15,
+RST 21 y BL 22. La microSD de la 1,47" comparte SCK/MOSI y añade MISO 5 y CS 4;
+este firmware no la usa. El WS2812 de ambas placas está en GPIO8.
 
 ### Lado del FPGA
 
@@ -137,6 +155,17 @@ Compilar y grabar de una vez, desde PowerShell, con el módulo en COM13:
 & "C:\Users\alber\AppData\Local\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" compile --upload -p COM13 --fqbn esp32:esp32:esp32c6:PartitionScheme=huge_app "C:\Users\alber\proyectosAI\msx\ESP32-UNAPI-Firmware"
 ```
 
+Ese comando genera el firmware de la **C6-LCD-1.3**. Para la nueva
+**C6-LCD-1.47**, se añade el perfil de pantalla:
+
+```powershell
+& "C:\Users\alber\AppData\Local\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" compile --upload -p COM13 --fqbn esp32:esp32:esp32c6:PartitionScheme=huge_app --build-property "compiler.cpp.extra_flags=-DWAVESHARE_C6_LCD_147" "C:\Users\alber\proyectosAI\msx\ESP32-UNAPI-Firmware"
+```
+
+La orientación predeterminada de la 1,47" deja el USB-C a la derecha. Si se
+monta girada, usar
+`compiler.cpp.extra_flags=-DWAVESHARE_C6_LCD_147 -DLCD_ROTATION=3`.
+
 Solo grabar lo que ya está compilado en `build/esp32.esp32.esp32c6/`:
 
 ```powershell
@@ -152,8 +181,12 @@ Tres cosas que cuestan compilaciones si se olvidan:
 - En PowerShell hace falta el **`&`** delante de la ruta entrecomillada; sin él
   da *Unexpected token*.
 
-Core de Arduino para ESP32: **3.3.10**. `ESP32BOARDS.h` ya trae `#define ESP32_C6`
-y `FLASH_4M`; no hay que tocar nada.
+Core de Arduino para ESP32: **3.3.10**. `ESP32BOARDS.h` fija C6, 4 MB y UART0;
+no hay que editar el fichero para cambiar de LCD. Cada perfil tiene identidad
+propia para impedir actualizaciones cruzadas: `UN32C604` para 1,3″ y
+`UN32C647` para 1,47″. El servidor OTA deberá publicar el binario nuevo bajo
+ese segundo tipo. En la 1,47" la retroiluminación queda justo por debajo del
+50 %, el máximo recomendado por Waveshare para uso continuo.
 
 Alternativa sin Arduino, con el binario fusionado que deja la compilación:
 
@@ -168,11 +201,11 @@ esptool --chip esp32c6 --port COM13 write_flash 0x0 "C:\Users\alber\proyectosAI\
 | | |
 |---|---|
 | `ESP32-UNAPI-Firmware.ino` | Sketch principal: UNAPI, WiFi, bucle |
-| `Display.ino` | Pantalla 240×240: logo, estado, reloj, turbo |
-| `UNAPIESP.h`, `ESP32BOARDS.h` | Órdenes propias y placas del upstream |
+| `Display.ino` | Perfiles 240×240 y 320×172: logo, estado, reloj y turbo |
+| `UNAPIESP.h`, `ESP32BOARDS.h` | Órdenes propias, selección de LCD y pines C6 |
 | `LogoMsx.h` | El logo MSX como máscara de 1 bit (lo genera `tools/make_logo_msx.py` a partir de `tools/logo_msx_src.png`) |
 | `partitions.csv` | Tabla de particiones con FFat |
-| `INVENTARIO_C6.md` | Inventario técnico del módulo: RTL del lado FPGA, protocolo, cinta TSX, prototipo de menú |
+| `INVENTARIO_C6.md` | Matriz técnica de las dos C6, pines y perfiles de compilación |
 | `README-UNAPI.md`, `SSH UNAPI specification.md` | Documentación original de ducasp |
 
 ---
@@ -184,7 +217,7 @@ Todo eso está cerrado:
 
 | | |
 |---|---|
-| **Companion ESP32-S3** | ❌ **Cancelado (26/08/2026).** Con él se van su pantalla de 320×170, la narrativa de arranque, sus bancos de prueba y el lanzador |
+| **Companion ESP32-S3 de esta rama** | ❌ Eliminado: la copia vigente de la Zynq vive en [`MSXimus_zynq/esp32`](https://github.com/Papipapito/MSXimus_zynq/tree/zynq/esp32), con soporte para ESP32-1732S019 y Waveshare ESP32-S3-LCD-1.69 |
 | **USB host** (teclado / mando / ratón) | ❌ Se va con la S3, **y no puede volver**: ver abajo |
 | **Caché de descargas en FFat** | ❌ **Abandonada (04/09/2026)**, aunque llegó a validarse en placa |
 | **File-Hunter en el ESP** | ❌ Abandonado con el lanzador de la S3 |
@@ -196,16 +229,18 @@ Todo eso está cerrado:
 > cambio de software lo va a convertir en uno. Por eso el companion del MSXnano
 > lleva **además** una Pico Zero RP2040 para el teclado y el mando.
 
-Nada de esto se ha perdido: vive en la historia de git y en las ramas
-`msxnano-s3`, `launcher`, `msximus` y `msxnano`.
+Nada de esto se ha perdido: el S3 vigente está en `MSXimus_zynq`; los prototipos
+anteriores viven en la historia y en las ramas `msxnano-s3`, `launcher`,
+`msximus` y `msxnano`.
 
 ---
 
-## Norma: TODO el código del ESP vive aquí
+## Norma: una sola copia vigente de cada firmware
 
-Nada de dejar copias dentro de los repos de los proyectos. Hubo una en
-`MSX_up_v3/esp32_c6/` y en cinco semanas divergió de este repo hasta que ya no
-se sabía cuál era la buena. **Un solo sitio.**
+El firmware de las **C6** vive aquí; el companion **S3 de la Zynq** vive en
+`MSXimus_zynq/esp32`. No se deben copiar entre repositorios. Ya hubo una copia
+del C6 en `MSX_up_v3/esp32_c6/` y en cinco semanas divergió hasta que dejó de
+estar claro cuál era la buena. **Un firmware, un repositorio propietario.**
 
 ---
 
@@ -213,7 +248,7 @@ se sabía cuál era la buena. **Un solo sitio.**
 
 | | |
 |---|---|
-| **`c6`** | **La línea viva.** Sólo C6: pantalla + UNAPI + turbo |
+| **`c6`** | **La línea viva.** Solo Waveshare C6-LCD-1.3 y C6-LCD-1.47: pantalla + UNAPI + turbo |
 | `unificado` | Histórico: el intento de servir a las dos placas a la vez |
 | `msxnano-s3` | Histórico: companion S3 del MSXnano |
 | `msximus`, `msxnano` | Histórico: ramas por proyecto |

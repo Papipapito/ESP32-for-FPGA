@@ -484,11 +484,6 @@ void setUartSpeed(){
 }
 
 void setup() {
-#ifdef HAVE_CONSOLE
-  Serial.begin(115200);                 // CH340 del USB-C: consola
-  Serial.println(String("\nMSX companion " FIRMWARETYPE ": enlace MSXLINK GPIO RX=") + MSXLINK_RX_PIN
-                 + " TX=" + MSXLINK_TX_PIN + ", turbo GPIO" + TURBO_PIN);
-#endif
   WiFi.persistent(true);
   EEPROM.begin(32);
   validateConfigFile();
