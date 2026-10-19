@@ -184,8 +184,10 @@ Tres cosas que cuestan compilaciones si se olvidan:
 Core de Arduino para ESP32: **3.3.10**. `ESP32BOARDS.h` fija C6, 4 MB y UART0;
 no hay que editar el fichero para cambiar de LCD. Cada perfil tiene identidad
 propia para impedir actualizaciones cruzadas: `UN32C604` para 1,3″ y
-`UN32C647` para 1,47″. El servidor OTA deberá publicar el binario nuevo bajo
-ese segundo tipo. En la 1,47" la retroiluminación queda justo por debajo del
+`UN32C647` para 1,47″. No hay servidor OTA para este firmware: los binarios
+fusionados de las dos placas van en las releases del MSXimus y del MSXnano
+(`firmware_esp32c6_*_merged.bin`) y se graban por el USB-C del módulo. En la
+1,47" la retroiluminación queda justo por debajo del
 50 %, el máximo recomendado por Waveshare para uso continuo.
 
 Alternativa sin Arduino, con el binario fusionado que deja la compilación:

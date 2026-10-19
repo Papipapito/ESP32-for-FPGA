@@ -89,8 +89,9 @@ Las dos variantes usan:
 - GFX Library for Arduino.
 - La misma tabla `partitions.csv`, con aplicación grande y FFat.
 - Identidades de actualización separadas: `UN32C604` para 1,3" y `UN32C647`
-  para 1,47". El servidor OTA debe publicar cada binario con su tipo; así no se
-  puede instalar por error una geometría de pantalla sobre la otra.
+  para 1,47", para que una actualización no pueda instalar una geometría de
+  pantalla sobre la otra. No hay servidor OTA para este firmware: los binarios
+  se publican en las releases del MSXimus y del MSXnano y se graban por USB-C.
 
 La placa de 1,3" es el valor predeterminado. La de 1,47" se selecciona con:
 
