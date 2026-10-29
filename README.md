@@ -129,7 +129,7 @@ Tiras de pines de la cara trasera, la del USB-C y la microSD:
 El USB-C de la placa es el USB nativo del S3: en el PC sale como *Dispositivo serie USB* (VID 303A). Con el módulo en COM5, desde PowerShell:
 
 ```powershell
-& "C:\Users\alber\AppData\Local\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" compile --upload -p COM5 --fqbn "esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=default,UploadMode=default,FlashMode=qio,FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB" --build-property "compiler.cpp.extra_flags=-DESP32_S3 -DESP32_S3_LCD169" "C:\ruta\ESP32-UNAPI-Firmware"
+& arduino-cli compile --upload -p COM5 --fqbn "esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=default,UploadMode=default,FlashMode=qio,FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB" --build-property "compiler.cpp.extra_flags=-DESP32_S3_LCD169" "C:\ruta\ESP32-UNAPI-Firmware"
 ```
 
 ### Waveshare ESP32-C6-LCD-1.3
@@ -137,13 +137,13 @@ El USB-C de la placa es el USB nativo del S3: en el PC sale como *Dispositivo se
 `ESP32BOARDS.h` ya trae `#define ESP32_C6` y `FLASH_4M`; no hay que tocar nada. Con el módulo en COM13:
 
 ```powershell
-& "C:\Users\alber\AppData\Local\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" compile --upload -p COM13 --fqbn esp32:esp32:esp32c6:PartitionScheme=huge_app "C:\ruta\ESP32-UNAPI-Firmware"
+& arduino-cli compile --upload -p COM13 --fqbn esp32:esp32:esp32c6:PartitionScheme=huge_app "C:\ruta\ESP32-UNAPI-Firmware"
 ```
 
 Solo grabar lo que ya está compilado en `build/esp32.esp32.esp32c6/`:
 
 ```powershell
-& "C:\Users\alber\AppData\Local\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" upload -p COM13 --fqbn esp32:esp32:esp32c6:PartitionScheme=huge_app --input-dir "C:\ruta\ESP32-UNAPI-Firmware\build\esp32.esp32.esp32c6" "C:\ruta\ESP32-UNAPI-Firmware"
+& arduino-cli upload -p COM13 --fqbn esp32:esp32:esp32c6:PartitionScheme=huge_app --input-dir "C:\ruta\ESP32-UNAPI-Firmware\build\esp32.esp32.esp32c6" "C:\ruta\ESP32-UNAPI-Firmware"
 ```
 
 Alternativa sin Arduino, con el binario fusionado que deja la compilación:
