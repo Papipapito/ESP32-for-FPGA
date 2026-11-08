@@ -21,7 +21,7 @@ El firmware **no sabe en qué máquina está**: todas hablan el mismo protocolo,
 
 | Placa | Se compila con | Pantalla | Para |
 |---|---|---|---|
-| **Waveshare ESP32-S3-LCD-1.69** (S3R8: 16 MB de flash y 8 MB de PSRAM) | `-DESP32_S3_LCD169` (implica `ESP32_S3`) | ST7789V2 240 × 280, USB-C nativo del S3 | **MSXimus Z** |
+| **Waveshare ESP32-S3-LCD-1.69** (S3R8: 16 MB de flash y 8 MB de PSRAM) | `-DESP32_S3_LCD169` (implica `ESP32_S3`) | ST7789V2 240 × 280 (se usa apaisada, 280 × 240), USB-C nativo del S3 | **MSXimus Z** |
 | Waveshare ESP32-C6-LCD-1.3 (4 MB) | nada (es la placa por defecto) | ST7789V2 240 × 240 | MSXnano y MSXimus de Tang |
 
 ---
@@ -51,7 +51,7 @@ Fondo azul MSX y el logotipo **MSX armándose desde los dos lados**, como en el 
  └────────────────────────────────┘
 ```
 
-En la S3-LCD-1.69 es la misma pantalla repartida en 280 de alto y apartada de las esquinas redondeadas del panel.
+En la S3-LCD-1.69 la pantalla va **apaisada** (280 de ancho × 240 de alto, porque la caja 3D deja el módulo girado 90°): es la misma pantalla con 40 px más de ancho, y apartada de las esquinas redondeadas del panel; la barra inferior son dos líneas (tiempo encendido y temperatura, y la hora). La rotación es una constante, `LCD_ROT` en `Display.ino` (1 por defecto; 3 es la misma girada 180°).
 
 | Zona | Qué muestra | Se refresca |
 |---|---|---|
