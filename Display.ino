@@ -17,6 +17,41 @@
 #include "UNAPIESP.h"     // ESPConfig, FIRMWARETYPE (guarda de inclusion)
 #include "ESP32BOARDS.h"  // placa: pines del enlace y TURBO_PIN
 
+#if defined(ESP32_S3_LCD169)
+// Waveshare ESP32-S3-LCD-1.69: ST7789V2 240x280 IPS por SPI, montada APAISADA (280 de ancho x 240 de alto) porque
+// la caja 3D la deja girada 90 grados. Pines del esquema V2 (LCD_DC 4, CS 5, SCL 6, SDA 7, RST 8, BL 15 por el
+// transistor Q1: activo alto). El controlador tiene 240x320 de RAM y el panel usa 280 filas centradas: offset de
+// 20 en el eje largo, que apaisada es la X (ver el constructor de gfx mas abajo).
+// 🚨 El panel tiene las ESQUINAS REDONDEADAS: nada pegado a las cuatro esquinas (margenes abajo).
+#define LCD_SCK    6
+#define LCD_MOSI   7
+#define LCD_CS     5
+#define LCD_DC     4
+#define LCD_RST    8
+#define LCD_BL    15
+#define LCD_W    280
+#define LCD_H    240
+#ifndef LCD_ROTATION
+#define LCD_ROTATION 3       // 3 = USB-C a la DERECHA (la caja la monta girada 180 respecto a la rotacion 1: con 1 quedaba
+                             // cabeza abajo al atornillarla). PROBADA EN PLACA por Albert el 08/11/2026: queda bien montada. 1 = USB-C a la izquierda (lado de arriba del modulo,
+                             // el opuesto al USB-C, a la derecha). Los 20 del offset caen en X en ambas.
+#endif
+#elif defined(ESP32_S3)
+// ESP32-1732S019: ST7789V 170x320 IPS por SPI (SPI2_HOST). Pines VERIFICADOS (BoardS3.h de agosto +
+// esquematico de Sunton): ninguno sale al header. Apaisada: 320 de ancho x 170 de alto, offset 35.
+#define LCD_SCK   12
+#define LCD_MOSI  13
+#define LCD_CS    10
+#define LCD_DC    11
+#define LCD_RST    1
+#define LCD_BL    14
+#define LCD_W    320
+#define LCD_H    170
+#define LCD_WIDE   1
+#ifndef LCD_ROTATION
+#define LCD_ROTATION 1       // 1 o 3 segun como se monte (3 = girada 180)
+#endif
+#else
 // Las dos C6 usan exactamente el mismo bus y los mismos GPIO para el LCD.
 #define LCD_SCK   7
 #define LCD_MOSI  6
@@ -47,6 +82,7 @@
 #define LCD_H    240
 #define LCD_BL_DUTY 255
 #endif
+#endif   // ESP32_S3_LCD169 / ESP32_S3 / C6
 
 // Titulo del LCD. NEUTRO a proposito ("MSX" a secas, decision Albert 27/07):
 // este firmware es COMUN al MSXimus y al MSXnano — la version del core no es
@@ -73,8 +109,35 @@ extern bool bSNTPOK;
 extern ESPConfig stDeviceConfiguration;      // .iGMT = offset horario en HORAS (lo setea el menu WiFi)
 extern volatile uint32_t g_lastUartMs;       // ultima actividad del enlace MSX<->ESP
 
+#if defined(ESP32_S3)
+static Arduino_DataBus *lcd_bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI, GFX_NOT_DEFINED, HSPI);
+#else
 static Arduino_DataBus *lcd_bus = new Arduino_HWSPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI);
-#if defined(WAVESHARE_C6_LCD_147)
+#endif
+// ROTACION 2 = la 0 girada 180 grados. El modulo del MSXimus 60K monta MEJOR AL
+// REVES en la caja (Albert, 31/07).
+//
+// ⚠️ EL ULTIMO 80 NO ES OPCIONAL, Y ES EL ERROR CLASICO DE ESTOS PANELES.
+// El ST7789 tiene 240x320 de RAM y este panel solo usa 240 de esas 320 filas.
+// En rotacion 0 la ventana visible son las filas 0..239; al girar 180 grados el
+// controlador invierte y pasa a ser 80..319. Sin compensarlo, TODO el contenido
+// sube 80 px: se pierden el titulo y el bloque de WiFi por arriba, y por abajo
+// se ve RAM sin inicializar (basura). Medido en placa el 31/07.
+// Por eso va en ROW_OFFSET2 (el ultimo parametro), que es el offset de fila que
+// la libreria aplica SOLO a las rotaciones invertidas (2 y 3) — el de la
+// rotacion 0 se queda a 0 y esa sigue igual que siempre.
+// Orden de los cuatro: col_offset1, row_offset1, col_offset2, row_offset2.
+//
+// ⛔ MI RAZONAMIENTO ANTERIOR ERA FALSO, queda escrito para que no se repita:
+// "el panel es cuadrado 240x240, luego la geometria es identica en las cuatro
+// rotaciones". Lo cuadrado es el PANEL, no la RAM del controlador.
+#if defined(ESP32_S3_LCD169)
+// Apaisada (rotaciones 1 y 3) la libreria usa ROW_OFFSET1/2 como desplazamiento en X: de ahi los 20 en esas dos
+// posiciones (y 0 en las de columna, que ahora son la Y). Los 20 son iguales en 1 y en 3: el panel esta centrado en las 320 filas.
+static Arduino_GFX *gfx = new Arduino_ST7789(lcd_bus, LCD_RST, LCD_ROTATION, true, 240, 280, 0, 20, 0, 20);
+#elif defined(ESP32_S3)
+static Arduino_GFX *gfx = new Arduino_ST7789(lcd_bus, LCD_RST, LCD_ROTATION, true, 170, 320, 35, 0, 35, 0);
+#elif defined(WAVESHARE_C6_LCD_147)
 static Arduino_GFX *gfx = new Arduino_ST7789(
     lcd_bus, LCD_RST, LCD_ROTATION, true, LCD_NATIVE_W, LCD_NATIVE_H,
     34, 0, 34, 0);
@@ -85,8 +148,34 @@ static Arduino_GFX *gfx = new Arduino_ST7789(
     lcd_bus, LCD_RST, LCD_ROTATION, true, LCD_NATIVE_W, LCD_NATIVE_H,
     0, 0, 0, 80);
 #endif
-// Geometria de la pantalla de estado: cuadrada 240x240 o apaisada 320x172.
-#if defined(LCD_WIDE)
+// Geometria de la pantalla de estado (C6 240x240 / S3 320x170 / S3-LCD-1.69 280x240 apaisada): lineas separadoras y zonas
+#if defined(ESP32_S3_LCD169)
+// 280x240 apaisada: la altura de la C6 (240) con 40 px mas de ancho. Las esquinas del panel son redondeadas (R ~43 px):
+// titulo y punto de actividad apartados de ellas y la barra inferior en DOS lineas (Up+Temp / hora) para que la ultima
+// quede a 26 px del borde y no se coma la esquina de abajo a la izquierda.
+#define TITLE_X  20
+#define TITLE_Y  10
+#define ACT_X   (LCD_W - 26)
+#define ACT_Y    18
+#define Y_SEP1   30
+#define Y_SEP2  108
+#define Y_SEP3  152
+#define WIFI_Y   34
+#define WIFI_H   72
+#define WIFI_L1  36
+#define WIFI_L2  60
+#define WIFI_L3  84
+#define TURBO_Y 114
+#define TURBO_H  32
+#define TURBO_TY 122
+#define BOT_Y   156
+#define BOT_H    84
+#define BOT_L1  168
+#define BOT_L2  168
+#define BOT_L3  198
+#define BOT_2LINES 1
+#elif defined(LCD_WIDE)
+// Geometria de la pantalla de estado: apaisada 320x172 (C6 1,47")
 #define Y_SEP1   28
 #define Y_SEP2   94
 #define Y_SEP3  130
@@ -122,6 +211,12 @@ static Arduino_GFX *gfx = new Arduino_ST7789(
 #define BOT_L2  190
 #define BOT_L3  220
 #define BOT_2LINES 0
+#endif
+#ifndef TITLE_X
+#define TITLE_X  6
+#define TITLE_Y  6
+#define ACT_X   (LCD_W - 12)
+#define ACT_Y    13
 #endif
 static bool lcd_ok = false;
 
@@ -224,7 +319,7 @@ static void drawChrome()
     gfx->fillScreen(COL_BLACK);
     gfx->setTextColor(COL_CYAN);
     gfx->setTextSize(2);
-    gfx->setCursor(6, 6);
+    gfx->setCursor(TITLE_X, TITLE_Y);
     gfx->print(DEVICE_NAME);
     gfx->drawFastHLine(0, Y_SEP1, LCD_W, COL_DARKGREY);
     gfx->drawFastHLine(0, Y_SEP2, LCD_W, COL_DARKGREY);
@@ -292,8 +387,8 @@ void displayTask()
         int8_t act = (now - g_lastUartMs < 250) ? 1 : 0;   // trafico UART reciente
         if (act != act_last) {
             act_last = act;
-            gfx->fillCircle(LCD_W - 12, 13, 6, act ? COL_GREEN : COL_DGREY);
-            gfx->drawCircle(LCD_W - 12, 13, 6, COL_DARKGREY);
+            gfx->fillCircle(ACT_X, ACT_Y, 6, act ? COL_GREEN : COL_DGREY);
+            gfx->drawCircle(ACT_X, ACT_Y, 6, COL_DARKGREY);
         }
     }
 

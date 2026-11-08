@@ -484,6 +484,11 @@ void setUartSpeed(){
 }
 
 void setup() {
+#ifdef HAVE_CONSOLE
+  Serial.begin(115200);                 // CH340 del USB-C: consola
+  Serial.println(String("\nMSX companion " FIRMWARETYPE ": enlace MSXLINK GPIO RX=") + MSXLINK_RX_PIN
+                 + " TX=" + MSXLINK_TX_PIN + ", turbo GPIO" + TURBO_PIN);
+#endif
   WiFi.persistent(true);
   EEPROM.begin(32);
   validateConfigFile();
@@ -541,7 +546,11 @@ void setup() {
     // WPA2/WPA3 transition-mode APs, which is the most common cause of a
     // ~10-second 4-way handshake timeout when the password is otherwise correct.
     WiFi.setMinSecurity(WIFI_AUTH_WPA2_PSK);
+#ifdef WIFI_LOWPOWER
+    WiFi.setTxPower(WIFI_POWER_2dBm);   // build de emergencia (18/09): modulo con el regulador tocado, pico de la radio al minimo
+#else
     WiFi.setTxPower(WIFI_POWER_15dBm);
+#endif
     bWiFiOn = true;
     if (!stDeviceConfiguration.ucAlwaysOn)
       ScheduleTimeoutCheck();
@@ -2998,6 +3007,14 @@ proccesscmd:
   
               if ((ucDQNflags&2)&&(!ucIsIp))
                 SendResponse(btCommand,UNAPI_ERR_INV_IP,0,0);
+#ifdef HAVE_TSXWEB
+              else if (!ucIsIp && tsxWebDnsHook((const char*)&btCommandData[1]))
+              {
+                // Cinta web (TsxWeb.ino): "tsx.msximus" = este mismo ESP por el loopback (servidor local en el 80)
+                uint8_t loBytes[4] = {127, 0, 0, 1};
+                SendResponse(btCommand, UNAPI_ERR_OK, 4, loBytes);
+              }
+#endif
               else
               {
                 WaitConnectionIfNeeded();
@@ -3005,6 +3022,9 @@ proccesscmd:
                   SendResponse(btCommand,UNAPI_ERR_OK,4,&ucDirectIp[0]);
                 else
                 {
+#ifdef HAVE_CONSOLE
+                  Serial.printf("[dns] %s\n", (const char*)&btCommandData[1]);
+#endif
                   if(WiFi.hostByName((const char*)&btCommandData[1],DNSQueryIP))
                   {
                     if (DNSQueryIP == IPAddress(0,0,0,0) || DNSQueryIP == IPAddress(255,255,255,255))
@@ -3029,6 +3049,15 @@ proccesscmd:
           else
           {
             btCommandData[uiCmdDataLen]=0; //zero terminate the DNS strings
+#ifdef HAVE_TSXWEB
+            if (tsxWebDnsHook((const char*)btCommandData))
+            {
+              // Cinta web (TsxWeb.ino): "tsx.msximus" = este mismo ESP por el loopback (servidor local en el 80)
+              uint8_t loBytes[4] = {127, 0, 0, 1};
+              SendResponse(btCommand, UNAPI_ERR_OK, 4, loBytes);
+              break;
+            }
+#endif
             WaitConnectionIfNeeded();
             if(WiFi.hostByName((const char*)btCommandData,DNSQueryIP))
             {
@@ -3173,10 +3202,23 @@ proccesscmd:
                       if (btConnections[uiForHelper] == CONN_CLOSED)
                         break;
                     btCMDConnNumber = uiForHelper+1;
+#ifdef HAVE_TSXWEB
+                    if (tsxWebIsMagic(externalIP))
+                    {
+                      // Cinta web (TsxWeb.ino): 127.0.0.1 = conexion VIRTUAL servida por este mismo ESP (sin socket)
+                      ClientList[uiForHelper] = tsxWebNewClient();
+                      btCMDBeginRet = 1;
+                    }
+                    else
+                    {
+#endif
                     ClientList[uiForHelper] = new WiFiClient();
                     ClientList[uiForHelper]->setNoDelay(!stDeviceConfiguration.ucNagle);
 
                     btCMDBeginRet = ClientList[uiForHelper]->connect(externalIP,uiCMDRemotePort,uiCMDLocalPort);
+#ifdef HAVE_TSXWEB
+                    }
+#endif
                     if (btCMDBeginRet)
                     {
                       uiLocalPorts[uiForHelper] = ClientList[uiForHelper]->localPort();
@@ -3884,6 +3926,9 @@ void loop() {
     g_lastUartMs = millis();          // actividad del enlace MSX (indicador de la pantalla)
     received_data_parser();
   }
+#ifdef HAVE_TSXWEB
+  tsxWebPoll();                       // Cinta web (TsxWeb.ino): servidor local del catalogo de tsx.eslamejor
+#endif
 
   if ((!btReceivedCommand)&&(btReadyRetries))
   {
